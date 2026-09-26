@@ -1,0 +1,16 @@
+{
+  "name": "neon-ice-1v1-hockey-sim",
+  "version": "1.0.0",
+  "description": "A first-person 1v1 hockey simulator with simulation and click-to-shoot modes.",
+  "private": true,
+  "scripts": {
+    "start": "python3 -m http.server 4173 --bind 0.0.0.0"
+  },
+  "keywords": [
+    "hockey",
+    "threejs",
+    "game",
+    "first-person"
+  ],
+  "license": "MIT"
+}
