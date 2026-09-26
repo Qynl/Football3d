@@ -537,8 +537,15 @@ section('AI opponent');
   const sim = new Sim({ difficulty: 'hard', personality: 'balanced', rules: 'timed' });
   sim.skipCountdown();
   // The human just stands still; a competent AI should punish that.
-  sim.run(75);
-  check('AI moves around the pitch', sim.players[1].position.horizontalDistanceTo({ x: 0, y: 0, z: 8.5 }) > 0.5);
+  const spawn = { x: sim.players[1].position.x, y: 0, z: sim.players[1].position.z };
+  let roamed = 0;
+  sim.run(75, () => {
+    roamed = Math.max(roamed, sim.players[1].position.horizontalDistanceTo(spawn));
+  });
+  // Measured as the furthest it ever got from its kickoff spot: comparing only
+  // the final position can pass or fail on where the last reset happened to
+  // put it.
+  check('AI moves around the pitch', roamed > 4, `roamed=${roamed.toFixed(1)}`);
   check('AI scores against a passive opponent', sim.match.score[1] > 0,
     `score=${sim.match.score.join('-')}`);
   check('AI takes shots', sim.kicks.length > 3, `kicks=${sim.kicks.length}`);

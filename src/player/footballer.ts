@@ -71,7 +71,7 @@ export const BASE = {
   mass: 74,
   kickMinSpeed: 8.0,
   kickMaxSpeed: 30.0,
-  chargeTime: 1.05,
+  chargeTime: 0.85,
   quickTapTime: 0.11,
   kickReach: 1.18,
   kickCooldown: 0.16,
@@ -851,9 +851,11 @@ export class Footballer {
     this.swingLob = this.input.lobHeld;
     this.swingCurve = this.curveInput;
     this.curveInput = 0;
-    this.swingTotal = quick ? 0.16 : 0.2 + charge * 0.22;
+    // Short wind-up: the strike has to land close enough to the button press
+    // that you can react to a bouncing ball, not pre-commit half a second early.
+    this.swingTotal = quick ? 0.12 : 0.15 + charge * 0.14;
     this.swingTimer = this.swingTotal;
-    this.kickCooldown = this.swingTotal + (quick ? 0.06 : 0.12 + charge * 0.16);
+    this.kickCooldown = this.swingTotal + (quick ? 0.06 : 0.1 + charge * 0.14);
     this.kickLeg = this.kickLeg > 0 ? -1 : 1;
     void ball;
   }
