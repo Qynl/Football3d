@@ -4,6 +4,7 @@ const statCards = [
   ['Speed', 'speed-readout', '0.0 m/s'],
   ['Puck', 'possession-readout', 'loose'],
   ['Shot', 'shot-readout', 'ready'],
+  ['Stick', 'stick-readout', 'neutral'],
   ['Momentum', 'momentum-readout', 'neutral'],
 ];
 
@@ -74,8 +75,8 @@ function Hud() {
 
       <div className="help glass-panel">
         <b>Controls</b>
-        <p><span>WASD</span> skate · <span>SHIFT</span> sprint · <span>Mouse</span> aim/look</p>
-        <p><span>Hold LMB</span> charge · <span>Release</span> shoot · <span>Right mouse</span> deke</p>
+        <p><span>WASD</span> skate · <span>SHIFT</span> sprint · <span>Mouse</span> aim/look + blade</p>
+        <p><span>Hold LMB</span> charge · <span>Flick mouse</span> shape shot · <span>Right mouse</span> deke</p>
         <p><span>E</span> poke/check · <span>M</span> mode · <span>R</span> reset puck · <span>ESC</span> unlock</p>
       </div>
     </div>

@@ -16,6 +16,7 @@ const clockEl = document.getElementById('game-clock');
 const speedEl = document.getElementById('speed-readout');
 const possessionEl = document.getElementById('possession-readout');
 const shotEl = document.getElementById('shot-readout');
+const stickReadout = document.getElementById('stick-readout');
 const modePill = document.getElementById('mode-pill');
 const powerFill = document.getElementById('power-fill');
 const toastEl = document.getElementById('toast');
@@ -65,6 +66,7 @@ let icePlane;
 let clickTargetMarker;
 let aimLine;
 let puckTrail;
+let puckShadow;
 let audioContext;
 
 const raycaster = new THREE.Raycaster();
@@ -107,6 +109,7 @@ const player = {
   sprintHeat: 0,
   stamina: 1,
   stealCooldown: 0,
+  dekeCooldown: 0,
 };
 
 const ai = {
@@ -144,6 +147,10 @@ const mouse = {
   chargeStart: 0,
   flick: 0,
   movementAccumulator: 0,
+  releaseVector: new THREE.Vector2(0, 0),
+  stickSide: 0.48,
+  stickReach: 1.28,
+  stickVelocity: 0,
   draggingPuck: false,
   leftDown: false,
 };
@@ -865,6 +872,14 @@ function createPuck() {
   puck.group.position.set(puck.pos.x, 0.12, puck.pos.y);
   scene.add(puck.group);
 
+  puckShadow = new THREE.Mesh(
+    new THREE.CircleGeometry(0.38, 32),
+    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.32, depthWrite: false })
+  );
+  puckShadow.rotation.x = -Math.PI / 2;
+  puckShadow.position.set(puck.pos.x, 0.035, puck.pos.y);
+  scene.add(puckShadow);
+
   const trailGeo = new THREE.BufferGeometry();
   const trailPositions = new Float32Array(90 * 3);
   trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3));
@@ -1091,6 +1106,10 @@ function resetRound(opening = false) {
   mouse.charge = 0;
   mouse.charging = false;
   mouse.leftDown = false;
+  mouse.releaseVector.set(0, 0);
+  mouse.stickSide = 0.48;
+  mouse.stickReach = 1.28;
+  mouse.stickVelocity = 0;
   moveSkillTarget(true);
   updatePuckMesh();
   updateAiMesh(0);
@@ -1147,6 +1166,13 @@ function onMouseMove(event) {
     player.pitch = clamp(player.pitch - my * 0.00165, -0.82, 0.34);
     mouse.flick = Math.max(mouse.flick, magnitude / 0.016);
     mouse.movementAccumulator += magnitude;
+    mouse.stickSide = clamp(mouse.stickSide + mx * 0.0042, -0.95, 0.95);
+    mouse.stickReach = clamp(mouse.stickReach - my * 0.0036, 0.78, 1.78);
+    mouse.stickVelocity = Math.max(mouse.stickVelocity, magnitude);
+    if (mouse.charging) {
+      mouse.releaseVector.x += mx;
+      mouse.releaseVector.y -= my;
+    }
     return;
   }
 
@@ -1169,6 +1195,8 @@ function onMouseDown(event) {
     mouse.charging = true;
     mouse.chargeStart = clock.elapsedTime;
     mouse.charge = 0;
+    mouse.releaseVector.set(0, 0);
+    mouse.stickReach = Math.max(mouse.stickReach, 1.45);
     shotEl.textContent = 'charging';
   }
   if (event.button === 2) {
@@ -1241,6 +1269,14 @@ function update(dt) {
 function updateMouseCharge(dt) {
   mouse.flick = damp(mouse.flick, 0, 6.5, dt);
   mouse.movementAccumulator = damp(mouse.movementAccumulator, 0, 2.2, dt);
+  mouse.stickVelocity = damp(mouse.stickVelocity, 0, 7, dt);
+  const sideNeutral = mouse.draggingPuck ? mouse.stickSide : 0.42;
+  const reachNeutral = mouse.charging ? 1.58 : mouse.draggingPuck ? 1.05 : 1.28;
+  mouse.stickSide = damp(mouse.stickSide, sideNeutral, mouse.draggingPuck ? 0.6 : 1.15, dt);
+  mouse.stickReach = damp(mouse.stickReach, reachNeutral, mouse.charging ? 0.55 : 1.25, dt);
+  if (!mouse.charging) {
+    mouse.releaseVector.multiplyScalar(Math.exp(-5 * dt));
+  }
   if (mouse.charging) {
     const held = clock.elapsedTime - mouse.chargeStart;
     mouse.charge = clamp(held / 1.05, 0, 1);
@@ -1310,6 +1346,7 @@ function updatePlayer(dt) {
     spray(new THREE.Vector3(player.pos.x, 0.07, player.pos.y), 2, TEAM.ice, 0.5);
   }
   player.stealCooldown = Math.max(0, player.stealCooldown - dt);
+  player.dekeCooldown = Math.max(0, player.dekeCooldown - dt);
 }
 
 function updateAi(dt) {
@@ -1408,19 +1445,38 @@ function updatePuck(dt) {
     const stick = getPlayerStickPosition2D();
     const handDeke = Math.sin(clock.elapsedTime * 10) * 0.08 * (mouse.draggingPuck ? 2 : 1);
     const right = getPlayerRight();
-    puck.pos.copy(stick).addScaledVector(right, handDeke);
-    puck.vel.copy(player.vel);
+    const previous = puck.pos.clone();
+    const desired = stick.clone().addScaledVector(right, handDeke);
+    const follow = clamp((mouse.draggingPuck ? 12 : 22) * dt, 0, 1);
+    puck.pos.lerp(desired, follow);
+    puck.vel.copy(puck.pos).sub(previous).multiplyScalar(1 / Math.max(dt, 0.001));
+    puck.vel.addScaledVector(player.vel, 0.18);
     puck.air = damp(puck.air, 0, 18, dt);
     puck.airVel = 0;
 
-    if (ai.pos.distanceTo(player.pos) < 1.36 && ai.cooldown <= 0 && state.possessionGrace <= 0) {
+    const aiStickPressure = ai.pos.distanceTo(stick);
+    if (mouse.draggingPuck && player.dekeCooldown <= 0 && aiStickPressure < 2.4 && mouse.stickVelocity > 22) {
+      player.dekeCooldown = 1.15;
+      ai.stun = 0.58;
+      ai.vel.addScaledVector(getPlayerRight(), Math.sign(mouse.stickSide || 1) * -2.8);
+      state.momentum = clamp(state.momentum + 0.14, -1, 1);
+      spray(new THREE.Vector3(stick.x, 0.11, stick.y), 18, TEAM.player, 1.05);
+      showToast('Manual deke beat. Now attack the lane.', 1150);
+    }
+
+    if (player.vel.length() > 12.4 && Math.abs(mouse.stickSide) > 0.82 && state.possessionGrace <= 0 && Math.random() < dt * 0.85) {
+      state.possession = null;
+      puck.vel.addScaledVector(right, mouse.stickSide * 5.8).addScaledVector(getPlayerForward(), 2.4);
+      puck.lastShotBy = 'player';
+      showToast('Lost the handle at speed — settle the puck.', 1000);
+    } else if (aiStickPressure < 1.28 && ai.cooldown <= 0 && state.possessionGrace <= 0) {
       stealFromPlayer();
     }
   } else if (state.possession === null) {
     const before = puck.pos.clone();
     puck.pos.addScaledVector(puck.vel, dt);
     puck.vel.multiplyScalar(Math.exp(-1.15 * dt));
-    puck.airVel -= 7.8 * dt;
+    puck.airVel -= 6.2 * dt;
     puck.air += puck.airVel * dt;
     if (puck.air <= 0) {
       if (puck.airVel < -2.2 && puck.vel.length() > 8) {
@@ -1437,9 +1493,9 @@ function updatePuck(dt) {
   }
 
   if (state.goalPause <= 0) {
-    if (puck.pos.y < -RINK.goalLine && Math.abs(puck.pos.x) < RINK.goalWidth / 2) {
+    if (puck.pos.y < -RINK.goalLine && Math.abs(puck.pos.x) < RINK.goalWidth / 2 && puck.air < 1.58) {
       scoreGoal('player');
-    } else if (puck.pos.y > RINK.goalLine && Math.abs(puck.pos.x) < RINK.goalWidth / 2) {
+    } else if (puck.pos.y > RINK.goalLine && Math.abs(puck.pos.x) < RINK.goalWidth / 2 && puck.air < 1.58) {
       scoreGoal('rival');
     }
   }
@@ -1531,14 +1587,14 @@ function handlePuckCollisions(before) {
 
 function checkLoosePuckPickup() {
   const stickPos = getPlayerStickPosition2D();
-  if (puck.pos.distanceTo(stickPos) < (mouse.draggingPuck ? 1.25 : 0.88) && puck.vel.length() < 17) {
+  if (puck.air < 0.42 && puck.pos.distanceTo(stickPos) < (mouse.draggingPuck ? 1.25 : 0.88) && puck.vel.length() < 17) {
     state.possession = 'player';
     state.possessionGrace = 0.24;
     showToast('Puck on your tape.', 1000);
     return;
   }
 
-  if (puck.pos.distanceTo(ai.pos) < 1.05 && puck.vel.length() < 17) {
+  if (puck.air < 0.42 && puck.pos.distanceTo(ai.pos) < 1.05 && puck.vel.length() < 17) {
     state.possession = 'ai';
     state.possessionGrace = 0.24;
     ai.cooldown = 0.7;
@@ -1551,6 +1607,12 @@ function updatePuckMesh() {
   puck.group.rotation.y = puck.spin;
   puck.group.rotation.x = Math.sin(puck.spin * 0.7) * (puck.air > 0.05 ? 0.36 : 0.04);
   puck.group.scale.setScalar(1 + Math.min(0.12, puck.air * 0.04));
+  if (puckShadow) {
+    puckShadow.position.set(puck.pos.x, 0.035, puck.pos.y);
+    const shadowScale = clamp(1 + puck.air * 0.28, 0.75, 1.7);
+    puckShadow.scale.set(shadowScale, shadowScale, 1);
+    puckShadow.material.opacity = clamp(0.34 - puck.air * 0.08, 0.06, 0.34);
+  }
 }
 
 function updateCamera(dt, attract = false) {
@@ -1592,18 +1654,20 @@ function updatePlayerStick(dt) {
   const speed = player.vel.length();
   const charge = mouse.charge;
   const sway = Math.sin(clock.elapsedTime * 8 + player.bob) * Math.min(0.08, speed * 0.009);
-  const deke = mouse.draggingPuck ? Math.sin(clock.elapsedTime * 12) * 0.14 : 0;
+  const side = clamp(mouse.stickSide, -0.95, 0.95);
+  const reach = clamp(mouse.stickReach, 0.78, 1.78);
+  const deke = mouse.draggingPuck ? Math.sin(clock.elapsedTime * 12) * 0.14 + side * 0.18 : side * 0.08;
 
-  playerStick.position.set(0.03 + sway * 0.3 + deke, -0.01 + charge * 0.05, charge * 0.18);
+  playerStick.position.set(0.03 + sway * 0.3 + deke, -0.01 + charge * 0.05, charge * 0.18 - (reach - 1.28) * 0.2);
   playerStick.rotation.set(
-    -charge * 0.22 + Math.sin(player.bob * 0.5) * 0.01,
-    deke * 0.4,
-    -charge * 0.55 + sway
+    -charge * 0.22 + Math.sin(player.bob * 0.5) * 0.01 + (reach - 1.28) * 0.1,
+    deke * 0.55,
+    -charge * 0.55 + sway - side * 0.24
   );
 
-  playerGloveR.position.z = -1.06 + charge * 0.34;
+  playerGloveR.position.z = -1.06 + charge * 0.34 - (reach - 1.28) * 0.16;
   playerGloveR.position.y = -0.68 + charge * 0.08;
-  playerGloveL.position.x = 0.16 - charge * 0.07;
+  playerGloveL.position.x = 0.16 - charge * 0.07 + side * 0.05;
 }
 
 function updateParticles(dt) {
@@ -1697,6 +1761,8 @@ function updateHud() {
   speedEl.textContent = `${player.vel.length().toFixed(1)} m/s`;
   possessionEl.textContent = state.possession === 'player' ? 'you' : state.possession === 'ai' ? 'rival' : 'loose';
   shotEl.textContent = mouse.charging ? `${Math.round(mouse.charge * 100)}%` : 'ready';
+  const stickSideLabel = mouse.stickSide < -0.25 ? 'backhand' : mouse.stickSide > 0.68 ? 'wide' : 'forehand';
+  stickReadout.textContent = `${stickSideLabel} ${mouse.draggingPuck ? 'drag' : 'set'}`;
   powerFill.style.width = `${Math.round(mouse.charge * 100)}%`;
 
   const staminaPct = Math.round(player.stamina * 100);
@@ -1767,12 +1833,12 @@ function shootPuck() {
   puck.lastShotBy = 'player';
   if (shotFromTape) puck.pos.copy(stick);
   const shotSpeed = 15 + finalPower * 22;
-  const pitchLift = state.mode === 'simulation'
-    ? clamp(player.pitch + 0.22, 0, 0.72)
-    : clamp(baseCharge * 0.32, 0.04, 0.32);
+  const pitchIntent = state.mode === 'simulation'
+    ? clamp((player.pitch + 0.42) / 0.86 + mouse.releaseVector.y / 420, 0.02, 1)
+    : clamp(baseCharge * 0.35, 0.04, 0.46);
   puck.air = 0.02;
-  puck.airVel = pitchLift * (4.6 + finalPower * 4.8);
-  puck.shotHigh = clamp(puck.airVel / 5.8, 0, 1);
+  puck.airVel = pitchIntent * (4.2 + finalPower * 6.4);
+  puck.shotHigh = pitchIntent;
   puck.vel.copy(direction).multiplyScalar(shotSpeed).addScaledVector(player.vel, 0.32);
   puck.spin += shotSpeed * 0.16;
 
@@ -1798,7 +1864,11 @@ function getShotDirection() {
     if (tmpVec2.lengthSq() < 0.01) tmpVec2.set(0, -1);
     return tmpVec2.clone().normalize();
   }
-  return getPlayerForward();
+  const forward = getPlayerForward();
+  const right = getPlayerRight();
+  const sweepAim = clamp(mouse.releaseVector.x / 360, -0.55, 0.55);
+  const bladeAim = clamp(mouse.stickSide * 0.13, -0.18, 0.18);
+  return forward.addScaledVector(right, sweepAim + bladeAim).normalize();
 }
 
 function aiShoot() {
@@ -1958,8 +2028,8 @@ function getAiRight() {
 function getPlayerStickPosition2D() {
   const forward = getPlayerForward();
   const right = getPlayerRight();
-  const reach = mouse.draggingPuck ? 1.05 : 1.42;
-  const side = mouse.draggingPuck ? 0.18 : 0.52;
+  const reach = clamp(mouse.stickReach + (mouse.charging ? 0.1 : 0), 0.72, 1.86);
+  const side = clamp(mouse.stickSide, -1.02, 1.02);
   return new THREE.Vector2(player.pos.x, player.pos.y).addScaledVector(forward, reach).addScaledVector(right, side);
 }
 
