@@ -2,7 +2,16 @@
 
 A React + Vite first-person 1v1 hockey simulator powered by Three.js.
 
-## What's new
+## Latest upgrade
+
+- Darker, less blown-out rink lighting: lower exposure, lower bloom, darker ice, dimmer HUD glass, vignette, and restrained neon.
+- Active goalies at both nets with lateral tracking, save animations, rebounds, and save feedback.
+- Real puck elevation: mouse pitch controls low/high shots, crossbars happen, and target snipes beat the goalie.
+- Better game feel: tighter sprint/fatigue tuning, dynamic camera FOV, post clanks, less visual washout, and clearer puck/radar feedback.
+- Smarter pressure: rival AI gets more aggressive with score/time momentum and goalies force actual shot placement instead of free goals.
+- Target-shot bonus still rewards real mouse aim in simulation mode.
+
+## Core features
 
 - React-rendered menu, HUD, stat panels, radar, live coach, and match screens.
 - Vite dev/build pipeline with bundled Three.js.
@@ -10,7 +19,7 @@ A React + Vite first-person 1v1 hockey simulator powered by Three.js.
 - Click-to-shoot mode with cursor aim.
 - Adaptive rival AI that steals, rushes, shoots, and gets more aggressive as the game goes on.
 - Stamina, shot power, skill multiplier, momentum, last-shot readout, and target-shot bonus.
-- Neon arena visuals with bloom, glass, ice scratches, dynamic light rails, puck trails, goal horn, and particle ice spray.
+- Neon arena visuals with glass, ice scratches, dynamic light rails, puck trails, goal horn, and particle ice spray.
 
 ## Run locally
 
@@ -38,7 +47,7 @@ npm run preview
 - `WASD` skate
 - `SHIFT` sprint; stamina matters
 - `SPACE` brake/recover
-- `Mouse` aim/look
+- `Mouse` aim/look; in simulation mode pitch controls shot height
 - `Hold LMB` charge shot
 - `Release LMB` shoot
 - `Right mouse` soft puck drag/deke

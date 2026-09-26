@@ -124,8 +124,16 @@ const puck = {
   pos: new THREE.Vector2(0, 16.2),
   vel: new THREE.Vector2(0, 0),
   spin: 0,
+  air: 0,
+  airVel: 0,
+  shotHigh: 0,
   group: null,
   lastShotBy: 'player',
+};
+
+const goalies = {
+  rival: { x: 0, z: -RINK.goalLine + 0.72, dir: 1, color: 0xff455b, group: null, saveFlash: 0, recovery: 0, saveCount: 0 },
+  player: { x: 0, z: RINK.goalLine - 0.72, dir: -1, color: 0x55f7ff, group: null, saveFlash: 0, recovery: 0, saveCount: 0 },
 };
 
 const mouse = {
@@ -166,8 +174,8 @@ function init() {
   clock = new THREE.Clock();
 
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x020711);
-  scene.fog = new THREE.FogExp2(0x061427, 0.026);
+  scene.background = new THREE.Color(0x030713);
+  scene.fog = new THREE.FogExp2(0x050b18, 0.034);
 
   camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 260);
   camera.rotation.order = 'YXZ';
@@ -178,20 +186,21 @@ function init() {
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.12;
+  renderer.toneMappingExposure = 0.72;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   root.appendChild(renderer.domElement);
 
   composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
-  bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.54, 0.62, 0.16);
+  bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.18, 0.34, 0.62);
   composer.addPass(bloomPass);
 
   createLights();
   createArena();
   createPuck();
   createAiSkater();
+  createGoalies();
   createPlayerStick();
   createParticlePool();
   createAimHelpers();
@@ -215,10 +224,10 @@ function init() {
 }
 
 function createLights() {
-  const hemi = new THREE.HemisphereLight(0xcafaff, 0x060716, 1.55);
+  const hemi = new THREE.HemisphereLight(0x89c9df, 0x02040c, 0.54);
   scene.add(hemi);
 
-  const moon = new THREE.DirectionalLight(0xffffff, 1.9);
+  const moon = new THREE.DirectionalLight(0xa7d9ff, 0.86);
   moon.position.set(-14, 28, 18);
   moon.castShadow = true;
   moon.shadow.mapSize.set(2048, 2048);
@@ -228,13 +237,13 @@ function createLights() {
   moon.shadow.camera.bottom = -42;
   scene.add(moon);
 
-  const neonCyan = new THREE.SpotLight(0x4af7ff, 330, 94, Math.PI / 4.5, 0.45, 1.15);
+  const neonCyan = new THREE.SpotLight(0x3ec6ff, 82, 88, Math.PI / 5.2, 0.55, 1.3);
   neonCyan.position.set(-18, 18, 3);
   neonCyan.target.position.set(0, 0, 0);
   neonCyan.castShadow = true;
   scene.add(neonCyan, neonCyan.target);
 
-  const neonPink = new THREE.SpotLight(0xff3df5, 240, 92, Math.PI / 4.8, 0.38, 1.25);
+  const neonPink = new THREE.SpotLight(0xff3df5, 58, 86, Math.PI / 5.4, 0.5, 1.35);
   neonPink.position.set(18, 15, -8);
   neonPink.target.position.set(0, 0, 0);
   scene.add(neonPink, neonPink.target);
@@ -242,13 +251,13 @@ function createLights() {
   for (let z = -24; z <= 24; z += 12) {
     const strip = new THREE.Mesh(
       new THREE.BoxGeometry(17, 0.06, 0.34),
-      new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x77eeff, emissiveIntensity: 1.9, roughness: 0.2 })
+      new THREE.MeshStandardMaterial({ color: 0x8db7c9, emissive: 0x2aa6c8, emissiveIntensity: 0.54, roughness: 0.32 })
     );
     strip.position.set(0, 8.9, z);
     strip.castShadow = false;
     scene.add(strip);
 
-    const light = new THREE.PointLight(z % 24 === 0 ? 0x75f6ff : 0xffffff, 32, 25, 1.8);
+    const light = new THREE.PointLight(z % 24 === 0 ? 0x4bc7ff : 0xaedcff, 7.5, 22, 2.0);
     light.position.set(0, 8.4, z);
     scene.add(light);
   }
@@ -267,16 +276,16 @@ function createArena() {
 function createIce() {
   const { map, roughnessMap } = makeIceTextures();
   const iceMaterial = new THREE.MeshPhysicalMaterial({
-    color: 0xcdfbff,
+    color: 0x6f93a7,
     map,
     roughnessMap,
-    roughness: 0.19,
+    roughness: 0.42,
     metalness: 0.0,
-    clearcoat: 1,
-    clearcoatRoughness: 0.12,
-    transmission: 0.05,
+    clearcoat: 0.62,
+    clearcoatRoughness: 0.3,
+    transmission: 0.0,
     transparent: true,
-    opacity: 0.96,
+    opacity: 0.88,
   });
 
   icePlane = new THREE.Mesh(new THREE.PlaneGeometry(RINK.width, RINK.length, 24, 48), iceMaterial);
@@ -286,7 +295,7 @@ function createIce() {
 
   const glow = new THREE.Mesh(
     new THREE.PlaneGeometry(RINK.width * 0.98, RINK.length * 0.98),
-    new THREE.MeshBasicMaterial({ color: 0x6cf8ff, transparent: true, opacity: 0.035, blending: THREE.AdditiveBlending })
+    new THREE.MeshBasicMaterial({ color: 0x2b8aa4, transparent: true, opacity: 0.016, blending: THREE.AdditiveBlending })
   );
   glow.rotation.x = -Math.PI / 2;
   glow.position.y = 0.018;
@@ -301,7 +310,7 @@ function createIceRails() {
     const mat = new THREE.MeshBasicMaterial({
       color: colors[i % colors.length],
       transparent: true,
-      opacity: 0.055,
+      opacity: 0.025,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
@@ -323,9 +332,9 @@ function makeIceTextures() {
   const ctx = canvas.getContext('2d');
 
   const gradient = ctx.createLinearGradient(0, 0, size, size);
-  gradient.addColorStop(0, '#e6fdff');
-  gradient.addColorStop(0.45, '#aeefff');
-  gradient.addColorStop(1, '#f9ffff');
+  gradient.addColorStop(0, '#183246');
+  gradient.addColorStop(0.45, '#4f7e95');
+  gradient.addColorStop(1, '#223f50');
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, size, size);
 
@@ -335,7 +344,7 @@ function makeIceTextures() {
     const y = Math.random() * size;
     const len = 12 + Math.random() * 150;
     const angle = (Math.random() * 0.6 - 0.3) + (Math.random() > 0.5 ? 0 : Math.PI / 2);
-    ctx.strokeStyle = `rgba(255,255,255,${0.035 + Math.random() * 0.1})`;
+    ctx.strokeStyle = `rgba(226,246,255,${0.018 + Math.random() * 0.055})`;
     ctx.lineWidth = Math.random() * 1.3 + 0.25;
     ctx.beginPath();
     ctx.moveTo(x, y);
@@ -349,7 +358,7 @@ function makeIceTextures() {
     const y = Math.random() * size;
     const r = 20 + Math.random() * 120;
     const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, 'rgba(68, 146, 172, 0.09)');
+    g.addColorStop(0, 'rgba(7, 21, 34, 0.16)');
     g.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = g;
     ctx.beginPath();
@@ -384,10 +393,10 @@ function makeIceTextures() {
 }
 
 function createRinkLines() {
-  const red = new THREE.MeshBasicMaterial({ color: 0xff304a, transparent: true, opacity: 0.82 });
-  const blue = new THREE.MeshBasicMaterial({ color: 0x1e7dff, transparent: true, opacity: 0.78 });
-  const white = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.52 });
-  const cyan = new THREE.MeshBasicMaterial({ color: 0x5ef7ff, transparent: true, opacity: 0.55 });
+  const red = new THREE.MeshBasicMaterial({ color: 0xb51d31, transparent: true, opacity: 0.58 });
+  const blue = new THREE.MeshBasicMaterial({ color: 0x1858b8, transparent: true, opacity: 0.54 });
+  const white = new THREE.MeshBasicMaterial({ color: 0xb9d2db, transparent: true, opacity: 0.28 });
+  const cyan = new THREE.MeshBasicMaterial({ color: 0x3cc8df, transparent: true, opacity: 0.34 });
 
   addIceStripe(RINK.width * 0.96, 0.16, 0, 0, red);
   addIceStripe(RINK.width * 0.96, 0.22, 0, -10.3, blue);
@@ -408,7 +417,7 @@ function createRinkLines() {
   const logo = createLogoTexture();
   const logoMesh = new THREE.Mesh(
     new THREE.PlaneGeometry(8.6, 4.2),
-    new THREE.MeshBasicMaterial({ map: logo, transparent: true, opacity: 0.82, blending: THREE.NormalBlending })
+    new THREE.MeshBasicMaterial({ map: logo, transparent: true, opacity: 0.42, blending: THREE.NormalBlending })
   );
   logoMesh.rotation.x = -Math.PI / 2;
   logoMesh.position.y = 0.024;
@@ -471,15 +480,15 @@ function roundRect(ctx, x, y, w, h, r) {
 }
 
 function createBoardsAndGlass() {
-  const boardMat = new THREE.MeshStandardMaterial({ color: 0xf4fbff, roughness: 0.34, metalness: 0.02 });
-  const yellowMat = new THREE.MeshStandardMaterial({ color: 0xffcf33, roughness: 0.28, emissive: 0x442200, emissiveIntensity: 0.08 });
+  const boardMat = new THREE.MeshStandardMaterial({ color: 0x8fa0aa, roughness: 0.46, metalness: 0.02 });
+  const yellowMat = new THREE.MeshStandardMaterial({ color: 0xb58e27, roughness: 0.38, emissive: 0x201000, emissiveIntensity: 0.04 });
   const glassMat = new THREE.MeshPhysicalMaterial({
-    color: 0x9befff,
-    roughness: 0.05,
+    color: 0x5fb4cf,
+    roughness: 0.12,
     metalness: 0,
     transparent: true,
-    opacity: 0.22,
-    transmission: 0.44,
+    opacity: 0.12,
+    transmission: 0.16,
     clearcoat: 1,
     clearcoatRoughness: 0.03,
     side: THREE.DoubleSide,
@@ -500,8 +509,8 @@ function createBoardsAndGlass() {
   addBox(new THREE.BoxGeometry(RINK.width + 0.4, 1.72, 0.18), glassMat, 0, 1.78, -RINK.halfL - 0.43, false);
   addBox(new THREE.BoxGeometry(RINK.width + 0.4, 1.72, 0.18), glassMat, 0, 1.78, RINK.halfL + 0.43, false);
 
-  const adMatA = new THREE.MeshStandardMaterial({ color: 0x06203f, emissive: 0x00e5ff, emissiveIntensity: 0.28, roughness: 0.32 });
-  const adMatB = new THREE.MeshStandardMaterial({ color: 0x26071f, emissive: 0xff3df5, emissiveIntensity: 0.24, roughness: 0.32 });
+  const adMatA = new THREE.MeshStandardMaterial({ color: 0x041323, emissive: 0x007a90, emissiveIntensity: 0.14, roughness: 0.44 });
+  const adMatB = new THREE.MeshStandardMaterial({ color: 0x160514, emissive: 0x8a1685, emissiveIntensity: 0.12, roughness: 0.44 });
   for (let z = -24; z <= 24; z += 8) {
     addBox(new THREE.BoxGeometry(0.04, 0.42, 4.8), z % 16 === 0 ? adMatA : adMatB, -RINK.halfW - 0.64, 0.62, z, false);
     addBox(new THREE.BoxGeometry(0.04, 0.42, 4.8), z % 16 === 0 ? adMatB : adMatA, RINK.halfW + 0.64, 0.62, z, false);
@@ -629,6 +638,159 @@ function makeGoal(goalZ, dir, accent) {
     }
   });
   scene.add(group);
+}
+
+function createGoalies() {
+  buildGoalie('rival', goalies.rival.z, TEAM.rival, 0x270711);
+  buildGoalie('player', goalies.player.z, TEAM.player, 0x041b25);
+}
+
+function buildGoalie(key, z, accent, darkColor) {
+  const goalie = goalies[key];
+  const group = new THREE.Group();
+  goalie.group = group;
+
+  const jerseyMat = new THREE.MeshStandardMaterial({ color: darkColor, emissive: accent, emissiveIntensity: 0.18, roughness: 0.46, metalness: 0.02 });
+  const padMat = new THREE.MeshStandardMaterial({ color: 0xc8d4da, roughness: 0.5, metalness: 0.03, emissive: accent, emissiveIntensity: 0.05 });
+  const cageMat = new THREE.MeshStandardMaterial({ color: 0x09111b, roughness: 0.36, metalness: 0.18 });
+  const glowMat = new THREE.MeshBasicMaterial({ color: accent, transparent: true, opacity: 0.42, blending: THREE.AdditiveBlending });
+
+  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.44, 0.58, 8, 16), jerseyMat);
+  torso.position.y = 1.02;
+  torso.scale.set(1.18, 1, 0.8);
+  torso.castShadow = true;
+  group.add(torso);
+
+  const mask = new THREE.Mesh(new THREE.SphereGeometry(0.27, 24, 14), padMat);
+  mask.position.y = 1.72;
+  mask.castShadow = true;
+  group.add(mask);
+
+  const cage = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.01, 8, 30), cageMat);
+  cage.position.set(0, 1.72, goalie.dir * -0.21);
+  cage.rotation.x = Math.PI / 2;
+  group.add(cage);
+
+  for (const x of [-0.34, 0.34]) {
+    const pad = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.72, 0.18), padMat);
+    pad.position.set(x, 0.42, goalie.dir * -0.08);
+    pad.rotation.z = x > 0 ? -0.08 : 0.08;
+    pad.castShadow = true;
+    group.add(pad);
+
+    const skate = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.06, 0.48), cageMat);
+    skate.position.set(x, 0.07, goalie.dir * -0.16);
+    skate.castShadow = true;
+    group.add(skate);
+  }
+
+  const glove = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.28, 0.24), padMat);
+  glove.position.set(-0.72, 1.04, goalie.dir * -0.22);
+  glove.rotation.z = 0.26;
+  glove.castShadow = true;
+  group.add(glove);
+
+  const blocker = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.46, 0.16), padMat);
+  blocker.position.set(0.72, 0.98, goalie.dir * -0.24);
+  blocker.rotation.z = -0.2;
+  blocker.castShadow = true;
+  group.add(blocker);
+
+  const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.024, 1.25, 10), cageMat);
+  stick.position.set(0.82, 0.48, goalie.dir * -0.55);
+  stick.rotation.set(0.78 * goalie.dir, 0.12, -0.34);
+  stick.castShadow = true;
+  group.add(stick);
+
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.055, 0.14), cageMat);
+  blade.position.set(0.75, 0.08, goalie.dir * -0.95);
+  blade.castShadow = true;
+  group.add(blade);
+
+  const creaseGlow = new THREE.Mesh(new THREE.CircleGeometry(2.25, 60), glowMat);
+  creaseGlow.rotation.x = -Math.PI / 2;
+  creaseGlow.position.set(0, 0.032, 0);
+  group.add(creaseGlow);
+
+  const light = new THREE.PointLight(accent, 0.9, 3.6, 2);
+  light.position.set(0, 1.1, goalie.dir * -0.25);
+  group.add(light);
+
+  group.position.set(goalie.x, 0, z);
+  group.rotation.y = goalie.dir > 0 ? 0 : Math.PI;
+  group.traverse((child) => {
+    if (child.isMesh) {
+      child.receiveShadow = true;
+      child.userData.homeY = child.position.y;
+    }
+  });
+  scene.add(group);
+}
+
+function updateGoalies(dt) {
+  for (const key of Object.keys(goalies)) {
+    const goalie = goalies[key];
+    if (!goalie.group) continue;
+    goalie.recovery = Math.max(0, goalie.recovery - dt);
+    goalie.saveFlash = Math.max(0, goalie.saveFlash - dt);
+
+    const puckComing = key === 'rival' ? puck.vel.y < -2 || puck.pos.y < -8 : puck.vel.y > 2 || puck.pos.y > 8;
+    const lead = puckComing ? puck.vel.x * 0.16 : 0;
+    const targetX = clamp(puck.pos.x + lead, -RINK.goalWidth / 2 + 0.55, RINK.goalWidth / 2 - 0.55);
+    const homeBias = key === 'rival' && state.possession === 'player' ? 1 : key === 'player' && state.possession === 'ai' ? 1 : 0.42;
+    const wantedX = lerp(0, targetX, homeBias);
+    const maxStep = (goalie.recovery > 0 ? 2.6 : 6.4) * dt;
+    goalie.x += clamp(wantedX - goalie.x, -maxStep, maxStep);
+
+    goalie.group.position.x = goalie.x;
+    goalie.group.position.y = Math.sin(clock.elapsedTime * 8 + (key === 'rival' ? 0 : 1.7)) * 0.015 + goalie.saveFlash * 0.08;
+    goalie.group.children.forEach((child, index) => {
+      if (!child.isMesh) return;
+      const homeY = child.userData.homeY ?? child.position.y;
+      child.position.y = homeY + goalie.saveFlash * (index % 2 === 0 ? 0.06 : 0.025);
+    });
+  }
+}
+
+function tryGoalieSave(key, before, speed) {
+  const goalie = goalies[key];
+  if (!goalie || !goalie.group || goalie.recovery > 0.22) return false;
+  const crossed = key === 'rival'
+    ? before.y > goalie.z && puck.pos.y <= goalie.z
+    : before.y < goalie.z && puck.pos.y >= goalie.z;
+  if (!crossed || Math.abs(puck.pos.x) > RINK.goalWidth / 2 + 0.45) return false;
+
+  const targetSnipe = key === 'rival' && skillTarget && Math.abs(puck.pos.x - skillTarget.x) < 0.68 && Math.abs(puck.air - skillTarget.y) < 0.62 && speed > 24;
+  const lateral = Math.abs(puck.pos.x - goalie.x);
+  const highShot = puck.air > 0.82;
+  const bodySave = lateral < (highShot ? 0.7 : 0.92) && puck.air < 1.62;
+  const padSave = !highShot && lateral < 1.62;
+  const gloveSave = highShot && lateral < 1.22 && Math.random() < 0.48 - clamp((speed - 24) / 44, 0, 0.18);
+  const desperationSave = !highShot && lateral < 2.25 && Math.random() < 0.46 - clamp((speed - 22) / 38, 0, 0.22);
+  if (targetSnipe && lateral > 0.58) return false;
+  if (!bodySave && !padSave && !gloveSave && !desperationSave) return false;
+
+  const reboundDir = key === 'rival' ? 1 : -1;
+  puck.pos.y = goalie.z + reboundDir * 0.34;
+  puck.pos.x = clamp(puck.pos.x, -RINK.goalWidth / 2 + 0.12, RINK.goalWidth / 2 - 0.12);
+  puck.vel.y = Math.abs(puck.vel.y) * reboundDir * (0.46 + Math.random() * 0.2);
+  puck.vel.x += (puck.pos.x - goalie.x) * (2.4 + Math.random() * 2.4) + (Math.random() - 0.5) * 2.1;
+  puck.vel.multiplyScalar(0.72);
+  puck.airVel = highShot ? -Math.abs(puck.airVel) * 0.18 : 0.7 + Math.random() * 1.1;
+  puck.air = Math.max(0.05, puck.air * 0.42);
+  state.possession = null;
+  state.possessionGrace = 0.38;
+  goalie.saveFlash = 0.38;
+  goalie.recovery = 0.42;
+  goalie.saveCount += 1;
+  state.lastShotLabel = key === 'rival' ? 'Goalie save' : 'Your goalie save';
+  state.momentum = clamp(state.momentum + (key === 'rival' ? -0.16 : 0.12), -1, 1);
+  spray(new THREE.Vector3(puck.pos.x, 0.32, goalie.z), 34, key === 'rival' ? TEAM.rival : TEAM.player, 1.7);
+  state.cameraShake = Math.max(state.cameraShake, 0.08);
+  showToast(key === 'rival' ? 'Goalie got a piece — chase the rebound.' : 'Your goalie bails you out. Go counter.', 1500);
+  playTone(210, 0.08, 'square', 0.035);
+  playTone(118, 0.12, 'triangle', 0.026, 0.03);
+  return true;
 }
 
 function createCrowd() {
@@ -912,9 +1074,18 @@ function resetRound(opening = false) {
   ai.pos.set(0, -8.5);
   ai.vel.set(0, 0);
   ai.yaw = Math.PI;
+  for (const goalie of Object.values(goalies)) {
+    goalie.x = 0;
+    goalie.saveFlash = 0;
+    goalie.recovery = 0;
+    if (goalie.group) goalie.group.position.set(0, 0, goalie.z);
+  }
   puck.pos.set(0, opening ? 16.2 : 0.2);
   puck.vel.set(0, 0);
   puck.spin = 0;
+  puck.air = 0;
+  puck.airVel = 0;
+  puck.shotHigh = 0;
   state.possession = opening ? 'player' : null;
   state.possessionGrace = 0.35;
   mouse.charge = 0;
@@ -1055,6 +1226,7 @@ function update(dt) {
   updateMouseCharge(dt);
   updatePlayer(dt);
   updateAi(dt);
+  updateGoalies(dt);
   updatePuck(dt);
   updateCamera(dt);
   updatePlayerStick(dt);
@@ -1201,6 +1373,8 @@ function updateAi(dt) {
     const right = getAiRight();
     puck.pos.copy(ai.pos).addScaledVector(forward, 1.05).addScaledVector(right, -0.34 + Math.sin(ai.dekeClock * 8) * 0.18);
     puck.vel.copy(ai.vel);
+    puck.air = 0;
+    puck.airVel = 0;
   }
 
   updateAiMesh(dt);
@@ -1236,6 +1410,8 @@ function updatePuck(dt) {
     const right = getPlayerRight();
     puck.pos.copy(stick).addScaledVector(right, handDeke);
     puck.vel.copy(player.vel);
+    puck.air = damp(puck.air, 0, 18, dt);
+    puck.airVel = 0;
 
     if (ai.pos.distanceTo(player.pos) < 1.36 && ai.cooldown <= 0 && state.possessionGrace <= 0) {
       stealFromPlayer();
@@ -1244,7 +1420,17 @@ function updatePuck(dt) {
     const before = puck.pos.clone();
     puck.pos.addScaledVector(puck.vel, dt);
     puck.vel.multiplyScalar(Math.exp(-1.15 * dt));
-    puck.spin += puck.vel.length() * dt * 5.5;
+    puck.airVel -= 7.8 * dt;
+    puck.air += puck.airVel * dt;
+    if (puck.air <= 0) {
+      if (puck.airVel < -2.2 && puck.vel.length() > 8) {
+        spray(new THREE.Vector3(puck.pos.x, 0.08, puck.pos.y), 10, 0xdffcff, 0.8);
+      }
+      puck.air = 0;
+      puck.airVel = Math.abs(puck.airVel) > 2.2 ? -puck.airVel * 0.16 : 0;
+      puck.shotHigh *= 0.7;
+    }
+    puck.spin += puck.vel.length() * dt * (puck.air > 0.05 ? 8.5 : 5.5);
 
     handlePuckCollisions(before);
     checkLoosePuckPickup();
@@ -1263,17 +1449,33 @@ function updatePuck(dt) {
 
 function handlePuckCollisions(before) {
   const speed = puck.vel.length();
-  if (puck.pos.y < -RINK.goalLine && Math.abs(puck.pos.x) < RINK.goalWidth / 2) {
+  if (tryGoalieSave('rival', before, speed) || tryGoalieSave('player', before, speed)) {
+    return;
+  }
+  if (puck.pos.y < -RINK.goalLine && Math.abs(puck.pos.x) < RINK.goalWidth / 2 && puck.air < 1.58) {
     scoreGoal('player');
     return;
   }
-  if (puck.pos.y > RINK.goalLine && Math.abs(puck.pos.x) < RINK.goalWidth / 2) {
+  if (puck.pos.y > RINK.goalLine && Math.abs(puck.pos.x) < RINK.goalWidth / 2 && puck.air < 1.58) {
     scoreGoal('rival');
     return;
   }
 
+  const crossedGoalLine = puck.pos.y < -RINK.goalLine || puck.pos.y > RINK.goalLine;
+  const inGoalMouthNow = Math.abs(puck.pos.x) < RINK.goalWidth / 2;
+  if (crossedGoalLine && inGoalMouthNow && puck.air >= 1.58 && puck.air < 2.15 && speed > 10) {
+    puck.pos.copy(before);
+    puck.vel.y *= -0.52;
+    puck.airVel = -Math.abs(puck.airVel) * 0.32;
+    state.cameraShake = Math.max(state.cameraShake, 0.12);
+    showToast('CROSSBAR! You went upstairs a little too much.', 1300);
+    playTone(760, 0.075, 'triangle', 0.05);
+    spray(new THREE.Vector3(puck.pos.x, 1.7, puck.pos.y), 28, TEAM.gold, 1.25);
+    return;
+  }
+
   const postBand = Math.abs(Math.abs(puck.pos.x) - RINK.goalWidth / 2) < 0.22;
-  if (postBand && (puck.pos.y < -RINK.goalLine || puck.pos.y > RINK.goalLine) && speed > 10) {
+  if (postBand && crossedGoalLine && puck.air < 1.64 && speed > 10) {
     puck.pos.copy(before);
     puck.vel.y *= -0.58;
     puck.vel.x += Math.sign(puck.pos.x) * 2.8;
@@ -1345,9 +1547,10 @@ function checkLoosePuckPickup() {
 }
 
 function updatePuckMesh() {
-  puck.group.position.set(puck.pos.x, 0.12, puck.pos.y);
+  puck.group.position.set(puck.pos.x, 0.12 + puck.air, puck.pos.y);
   puck.group.rotation.y = puck.spin;
-  puck.group.rotation.x = Math.sin(puck.spin * 0.7) * 0.04;
+  puck.group.rotation.x = Math.sin(puck.spin * 0.7) * (puck.air > 0.05 ? 0.36 : 0.04);
+  puck.group.scale.setScalar(1 + Math.min(0.12, puck.air * 0.04));
 }
 
 function updateCamera(dt, attract = false) {
@@ -1372,7 +1575,11 @@ function updateCamera(dt, attract = false) {
   camera.rotation.x = player.pitch - state.cameraKick + (Math.random() - 0.5) * shake * 0.04;
   camera.rotation.z = clamp(-player.vel.x * 0.006, -0.065, 0.065);
 
-  const lineOpacity = clamp((speed - 7) / 8, 0, 0.5);
+  const fovTarget = 73 + clamp(speed - 6, 0, 9) * 0.85 - mouse.charge * 3.4;
+  camera.fov = damp(camera.fov, fovTarget, 5.5, dt);
+  camera.updateProjectionMatrix();
+
+  const lineOpacity = clamp((speed - 7) / 8, 0, 0.34);
   speedLines.forEach((line, index) => {
     line.material.opacity = lineOpacity * (0.5 + Math.sin(clock.elapsedTime * 8 + index) * 0.3 + 0.3);
     line.position.z += dt * (4 + speed * 0.7);
@@ -1427,7 +1634,7 @@ function updateTrail() {
     positions[i + 2] = positions[i - 1];
   }
   positions[0] = puck.pos.x;
-  positions[1] = 0.13;
+  positions[1] = 0.13 + puck.air * 0.45;
   positions[2] = puck.pos.y;
   puckTrail.material.opacity = clamp(puck.vel.length() / 24, 0.08, 0.58);
   puckTrail.geometry.attributes.position.needsUpdate = true;
@@ -1520,7 +1727,7 @@ function setRadarDot(element, pos) {
 function updateCoachTip() {
   if (!coachTip) return;
   if (mouse.charging && state.mode === 'simulation') {
-    coachTip.textContent = 'Charging: keep the mouse moving through release for a bigger flick boost.';
+    coachTip.textContent = 'Charging: move the mouse through release for power; aim higher/lower to beat the goalie.';
   } else if (player.stamina < 0.22) {
     coachTip.textContent = 'Stamina is cooked. Coast or brake for a second, then sprint again.';
   } else if (state.possession === 'ai') {
@@ -1560,6 +1767,12 @@ function shootPuck() {
   puck.lastShotBy = 'player';
   if (shotFromTape) puck.pos.copy(stick);
   const shotSpeed = 15 + finalPower * 22;
+  const pitchLift = state.mode === 'simulation'
+    ? clamp(player.pitch + 0.22, 0, 0.72)
+    : clamp(baseCharge * 0.32, 0.04, 0.32);
+  puck.air = 0.02;
+  puck.airVel = pitchLift * (4.6 + finalPower * 4.8);
+  puck.shotHigh = clamp(puck.airVel / 5.8, 0, 1);
   puck.vel.copy(direction).multiplyScalar(shotSpeed).addScaledVector(player.vel, 0.32);
   puck.spin += shotSpeed * 0.16;
 
@@ -1572,7 +1785,7 @@ function shootPuck() {
 
   const label = finalPower > 1.1 ? 'ABSOLUTE LASER!' : finalPower > 0.82 ? 'Hard wrister.' : 'Quick release.';
   state.lastShotKmh = Math.round(shotSpeed * 3.6);
-  state.lastShotLabel = `${label.replace('.', '')} · ${state.mode === 'simulation' ? 'mouse flick' : 'cursor aim'}`;
+  state.lastShotLabel = `${label.replace('.', '')} · ${puck.shotHigh > 0.52 ? 'high' : 'low'} · ${state.mode === 'simulation' ? 'mouse flick' : 'cursor aim'}`;
   state.momentum = clamp(state.momentum + 0.08 + finalPower * 0.05, -1, 1);
   showToast(`${label} ${state.lastShotKmh} km/h`, 1500);
   playTone(80 + shotSpeed * 4, 0.07, 'sawtooth', 0.06);
@@ -1596,6 +1809,9 @@ function aiShoot() {
   state.possession = null;
   state.possessionGrace = 0.22;
   puck.lastShotBy = 'ai';
+  puck.air = 0.02;
+  puck.airVel = 0.8 + Math.random() * 1.8;
+  puck.shotHigh = clamp(puck.airVel / 5.8, 0, 1);
   puck.vel.copy(direction).multiplyScalar(18 + Math.random() * 7).addScaledVector(ai.vel, 0.28);
   puck.spin += 2.8;
   ai.cooldown = 2.2;
@@ -1649,7 +1865,7 @@ function tryPokeCheck() {
 
 function scoreGoal(who) {
   if (state.goalPause > 0 || state.gameOver) return;
-  const hitTarget = who === 'player' && skillTarget && Math.abs(puck.pos.x - skillTarget.x) < 0.74;
+  const hitTarget = who === 'player' && skillTarget && Math.abs(puck.pos.x - skillTarget.x) < 0.74 && Math.abs(puck.air - skillTarget.y) < 0.64;
   if (who === 'player') {
     state.playerScore += 1;
     state.shotStreak = hitTarget ? state.shotStreak + 1 : Math.max(0, state.shotStreak - 1);
@@ -1791,7 +2007,7 @@ function playGoalHorn(color) {
   playTone(98, 0.42, 'sawtooth', 0.06, 0.04);
   playTone(196, 0.28, 'triangle', 0.05, 0.13);
   const goalColor = new THREE.Color(color);
-  scene.background = goalColor.clone().lerp(new THREE.Color(0x020711), 0.72);
+  scene.background = goalColor.clone().lerp(new THREE.Color(0x030713), 0.86);
   window.setTimeout(() => {
     scene.background = new THREE.Color(0x020711);
   }, 180);

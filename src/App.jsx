@@ -90,15 +90,15 @@ function StartScreen() {
         <h1>NEON ICE</h1>
         <h2>1v1 Hockey Simulator</h2>
         <p>
-          Skate in first person, battle an adaptive rival AI, snap shots off the glass,
-          read the live radar, manage stamina, and use real mouse movement to make releases nastier.
+          Darker arena, tighter controls, smarter rival pressure, active goalies, real puck elevation,
+          rebounds, live radar, stamina management, and mouse-flick shooting instead of fake button spam.
         </p>
 
         <div className="feature-strip">
-          <div><strong>Pointer-lock sim</strong><span>raw mouse look</span></div>
-          <div><strong>Physics puck</strong><span>rebounds + blocks</span></div>
+          <div><strong>Pointer-lock sim</strong><span>pitch + flick aim</span></div>
+          <div><strong>Real rebounds</strong><span>posts + goalies</span></div>
           <div><strong>Adaptive AI</strong><span>steals + rushes</span></div>
-          <div><strong>Neon arena</strong><span>bloom + particles</span></div>
+          <div><strong>Darker ice</strong><span>cleaner bloom</span></div>
         </div>
 
         <div className="mode-grid">
