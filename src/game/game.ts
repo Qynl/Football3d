@@ -586,6 +586,9 @@ export class Game implements UiHost, MatchHost {
     for (const p of this.players) {
       p.update(dt, this.nearestBall(p), this.arena, this.players);
       this.physics.resolveCapsuleStatics(p.capsule as CapsuleRef);
+      for (const ball of this.balls) {
+        this.physics.resolveCapsuleAgainstPinnedBall(p.capsule as CapsuleRef, ball.body);
+      }
     }
 
     const capsules = this.players.map((p) => p.capsule);

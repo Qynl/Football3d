@@ -22,6 +22,10 @@ export class BallBody {
   grounded = false;
   /** Seconds since the ball last touched the ground. */
   airTime = 0;
+  /** How long the ball has been trapped between a body and a wall. */
+  jamTime = 0;
+  /** Brief window after popping out of a scramble where bodies cannot re-trap it. */
+  jamGrace = 0;
 
   get inertia(): number {
     // Solid-ish sphere shell mix, tuned for a football.
@@ -35,6 +39,8 @@ export class BallBody {
     this.spin.set(0, 0, 0);
     this.grounded = false;
     this.airTime = 0;
+    this.jamTime = 0;
+    this.jamGrace = 0;
   }
 
   applyImpulse(ix: number, iy: number, iz: number): void {
@@ -110,11 +116,127 @@ export class PhysicsWorld {
       this.collideWalls(ball);
       this.collidePosts(ball);
       this.collideBars(ball);
-      for (const cap of capsules) this.collideCapsule(ball, cap, h);
+      if (ball.jamGrace > 0) ball.jamGrace -= h;
+      else for (const cap of capsules) this.collideCapsule(ball, cap, h);
+      // A body shove must never leave the ball buried in the pitch or a wall.
+      this.collideGround(ball);
+      this.collideWalls(ball);
     }
+    this.resolveJam(ball, dt, capsules);
     if (!ball.position.isFinite() || !ball.velocity.isFinite()) {
       ball.reset(0, 1, 0);
     }
+  }
+
+  /**
+   * Anti-deadlock. A ball squeezed between a player and a wall - corners are the
+   * classic case - can otherwise sit there forever while both players shove at
+   * it. When that happens, pop it up and out of the pile, which is exactly what
+   * a real ball does when it squirts out of a scramble.
+   */
+  /** Which walls (if any) the ball is currently resting against. */
+  private wallPin(ball: BallBody): { x: number; z: number; count: number } {
+    let x = 0;
+    let z = 0;
+    let count = 0;
+    for (const w of this.walls) {
+      if (ball.position.y - ball.radius > w.height) continue;
+      if (ball.position.y + ball.radius < w.bottom) continue;
+      const along = w.axis === 'x' ? ball.position.z : ball.position.x;
+      if (along < w.min - ball.radius || along > w.max + ball.radius) continue;
+      const across = w.axis === 'x' ? ball.position.x : ball.position.z;
+      if (Math.abs(across - w.coord) - ball.radius > 0.14) continue;
+      count++;
+      if (w.axis === 'x') x += w.normalSign;
+      else z += w.normalSign;
+    }
+    return { x, z, count };
+  }
+
+  /**
+   * A ball squashed against a wall stops behaving like something you can walk
+   * through: it holds the player off instead of being crushed into the geometry.
+   */
+  resolveCapsuleAgainstPinnedBall(cap: CapsuleRef, ball: BallBody): void {
+    if (ball.position.y > cap.position.y + cap.height) return;
+    if (!this.wallPin(ball).count) return;
+    const cx = cap.position.x + cap.offsetX;
+    const cz = cap.position.z + cap.offsetZ;
+    let dx = cx - ball.position.x;
+    let dz = cz - ball.position.z;
+    const d = Math.hypot(dx, dz);
+    const rsum = cap.radius + ball.radius;
+    if (d > rsum || d < 1e-5) return;
+    dx /= d;
+    dz /= d;
+    const pen = rsum - d;
+    cap.position.x += dx * pen;
+    cap.position.z += dz * pen;
+    const vn = cap.velocity.x * dx + cap.velocity.z * dz;
+    if (vn < 0) {
+      cap.velocity.x -= vn * dx;
+      cap.velocity.z -= vn * dz;
+    }
+  }
+
+  private resolveJam(ball: BallBody, dt: number, capsules: readonly CapsuleRef[]): void {
+    if (ball.speed > 3.4) {
+      ball.jamTime = 0;
+      return;
+    }
+
+    // Every wall the ball is currently leaning on (two of them in a corner).
+    const pin = this.wallPin(ball);
+    const normalX = pin.x;
+    const normalZ = pin.z;
+    if (!pin.count) {
+      ball.jamTime = Math.max(0, ball.jamTime - dt * 2);
+      return;
+    }
+
+    // The nearest body leaning on it.
+    let bodyX = 0;
+    let bodyZ = 0;
+    let bodyGap = Infinity;
+    for (const cap of capsules) {
+      const cx = cap.position.x + cap.offsetX;
+      const cz = cap.position.z + cap.offsetZ;
+      const gap = Math.hypot(ball.position.x - cx, ball.position.z - cz) - cap.radius - ball.radius;
+      if (gap < bodyGap) {
+        bodyGap = gap;
+        bodyX = cx;
+        bodyZ = cz;
+      }
+    }
+    if (bodyGap > 0.45) {
+      ball.jamTime = Math.max(0, ball.jamTime - dt * 2);
+      return;
+    }
+
+    ball.jamTime += dt;
+    if (ball.jamTime < 0.6) return;
+    ball.jamTime = 0;
+
+    // Off the wall(s), along them away from the body, and high enough to clear
+    // the legs that were trapping it.
+    const awayX = ball.position.x - bodyX;
+    const awayZ = ball.position.z - bodyZ;
+    const awayLen = Math.hypot(awayX, awayZ) || 1;
+    const tangentX = -normalZ;
+    const tangentZ = normalX;
+    const tangentSign = awayX * tangentX + awayZ * tangentZ >= 0 ? 1 : -1;
+    let dirX = normalX + tangentX * tangentSign * 0.9 + (awayX / awayLen) * 0.35;
+    let dirZ = normalZ + tangentZ * tangentSign * 0.9 + (awayZ / awayLen) * 0.35;
+    const dl = Math.hypot(dirX, dirZ) || 1;
+    dirX /= dl;
+    dirZ /= dl;
+    ball.velocity.x = dirX * 4.4;
+    ball.velocity.z = dirZ * 4.4;
+    ball.velocity.y = 6.2; // clears a standing player
+    ball.grounded = false;
+    ball.position.y += 0.05;
+    ball.jamGrace = 0.3;
+    this.pushContact('wall', 1.1, ball.position.x, ball.position.y, ball.position.z, dirX, 0, dirZ);
   }
 
   private integrate(ball: BallBody, dt: number): void {

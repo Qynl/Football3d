@@ -591,6 +591,46 @@ section('Penalty duel');
     `attempts=${sim.match.penalty.attempts.join('/')}`);
 }
 
+{
+  // Regression: a ball pinned in a corner by two bodies used to deadlock the
+  // whole match. It must always squirt back out.
+  const sim = new Sim({ ai: false });
+  sim.skipCountdown();
+  const hw = sim.arena.def.halfWidth;
+  const hl = sim.arena.def.halfLength;
+  sim.ball.reset(hw - 0.4, 0.36, hl - 0.4);
+  sim.players[0].teleport(hw - 1.2, hl - 1.2, Math.PI / 4);
+  sim.players[1].teleport(hw - 2.0, hl - 1.0, Math.PI / 4);
+  sim.run(4, (_t, inputs) => {
+    // Both players shove into the corner.
+    inputs[0].moveX = 0.7;
+    inputs[0].moveZ = 0.7;
+    inputs[1].moveX = 0.7;
+    inputs[1].moveZ = 0.7;
+  });
+  const escaped = sim.ball.body.position.horizontalDistanceTo({ x: hw, y: 0, z: hl }) > 1.6;
+  check('a ball trapped in a corner escapes', escaped,
+    `ball=${sim.ball.body.position.x.toFixed(1)},${sim.ball.body.position.z.toFixed(1)}`);
+}
+
+{
+  // A contested match must actually produce football, not a 60 second scrum.
+  const sim = new Sim({ difficulty: 'normal', rules: 'timed', seed: 4, aiBoth: true });
+  sim.skipCountdown();
+  let moved = 0;
+  let last = sim.ball.body.position.clone();
+  sim.run(90, () => {
+    const d = sim.ball.body.position.horizontalDistanceTo(last);
+    if (d > 0.5) {
+      moved += d;
+      last = sim.ball.body.position.clone();
+    }
+  });
+  check('the ball keeps moving in a contested match', moved > 300, `travelled=${moved.toFixed(0)}m`);
+  check('a contested match produces goals',
+    sim.match.score[0] + sim.match.score[1] > 0, `score=${sim.match.score.join('-')}`);
+}
+
 // ------------------------------------------------------------- full game boot
 
 section('Full game boot (headless DOM + WebGL shim)');

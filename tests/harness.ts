@@ -187,6 +187,9 @@ export class Sim {
     for (const p of this.players) {
       p.update(dt, this.balls[0], this.arena, this.players);
       this.physics.resolveCapsuleStatics(p.capsule);
+      for (const ball of this.balls) {
+        this.physics.resolveCapsuleAgainstPinnedBall(p.capsule, ball.body);
+      }
     }
     const capsules = this.players.map((p) => p.capsule);
     for (const ball of this.balls) {

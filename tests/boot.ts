@@ -32,8 +32,12 @@ export async function runBootTests(
   const anyGame = game as unknown as {
     frame(dt: number): void;
     match: { phase: string; score: number[]; timeLeft: number | null };
-    players: { position: { x: number; y: number; z: number }; charge: number }[];
-    balls: unknown[];
+    players: {
+      position: { x: number; y: number; z: number };
+      charge: number;
+      teleport(x: number, z: number, yaw: number): void;
+    }[];
+    balls: { reset(x: number, y: number, z: number): void }[];
     ui: { show(name: string): void; openSettingsFrom(name: string): void };
     startMatch(o: unknown): void;
     quitToMenu(): void;
@@ -107,10 +111,15 @@ export async function runBootTests(
       arenaId: mode === 'chaos' ? 'tiny' : 'classic',
       difficulty: 'hard',
       personality: 'chaos',
-      chaos: mode === 'chaos' ? ['giantball', 'lowgrav', 'turbo'] : [],
+      chaos:
+        mode === 'chaos'
+          ? ['giantBall', 'lowGravity', 'superBounce', 'turbo', 'doubleBall', 'randomBounce']
+          : [],
     });
     frames(200);
-    check(`${mode} mode runs`, anyGame.balls.length > 0, `phase=${anyGame.match.phase}`);
+    const wantBalls = mode === 'chaos' ? 2 : 1;
+    check(`${mode} mode runs`, anyGame.balls.length === wantBalls,
+      `balls=${anyGame.balls.length} phase=${anyGame.match.phase}`);
     anyGame.quitToMenu();
     frames(10);
   }
@@ -126,15 +135,21 @@ export async function runBootTests(
   });
   frames(260); // through the countdown
 
+  // Clear the area so the measurement is about input, not about the opponent.
   const human = anyGame.players[0];
+  human.teleport(0, -6, 0);
+  anyGame.players[1].teleport(9, 14, Math.PI);
+  anyGame.balls[0].reset(-9, 0.4, 14);
+  frames(2);
+  const startX = human.position.x;
   const startZ = human.position.z;
   fireEvent('keydown', { code: 'KeyW' });
   fireEvent('keydown', { code: 'ShiftLeft' });
   frames(60);
   fireEvent('keyup', { code: 'KeyW' });
   fireEvent('keyup', { code: 'ShiftLeft' });
-  check('WASD moves the human player', Math.abs(human.position.z - startZ) > 1.5,
-    `dz=${(human.position.z - startZ).toFixed(2)}`);
+  const travelled = Math.hypot(human.position.x - startX, human.position.z - startZ);
+  check('WASD moves the human player', travelled > 3, `moved=${travelled.toFixed(2)}m`);
 
   fireEvent('keydown', { code: 'Space' });
   frames(2);
