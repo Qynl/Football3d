@@ -79,6 +79,7 @@ export class Game implements UiHost, MatchHost {
     chargeActive: false,
     curve: 0,
     lob: false,
+    gassed: false,
     stamina: 100,
     aiState: '',
     aiRead: '',
@@ -170,6 +171,12 @@ export class Game implements UiHost, MatchHost {
         this.camera.addShake(0.22);
         this.vfx.impact(p.position.x, 0.4, p.position.z, 2, this.arena.def.theme.grassA);
         if (p.isHuman) this.matchStats.tackles++;
+      },
+      onDiveStart: (p: Footballer) => {
+        this.audio.play('dive');
+        this.camera.addShake(0.18);
+        this.vfx.slideDust(p.position.x, p.position.z, 5);
+        if (p.isHuman) this.matchStats.slides++;
       },
       onSlideStart: (p: Footballer) => {
         this.audio.play('slide');
@@ -692,9 +699,12 @@ export class Game implements UiHost, MatchHost {
     const p = info.player;
     const power = info.power;
     const strong = info.charge > 0.55;
-    this.audio.play(info.quick ? 'kickQuick' : strong ? 'kickPower' : 'kick', clamp01(info.charge));
+    this.audio.play(
+      info.header ? 'header' : info.quick ? 'kickQuick' : strong ? 'kickPower' : 'kick',
+      clamp01(info.charge),
+    );
     this.camera.addShake(clamp(info.charge * 0.55, 0.05, 0.6));
-    if (strong) this.vfx.hitstop(0.035);
+    if (strong) this.vfx.hitstop(info.header ? 0.06 : 0.035);
     this.vfx.kickBurst(info.position.x, 0, info.position.z, power, info.direction.x, info.direction.z);
     this.registerTouch(p, power, false);
     if (p.isHuman) {
@@ -883,6 +893,7 @@ export class Game implements UiHost, MatchHost {
     s.curve = human.charging ? clamp(this.input.get(0).moveX, -1, 1) : 0;
     s.lob = this.input.get(0).lobHeld;
     s.stamina = human.stamina;
+    s.gassed = human.gassed;
     if (this.ai && this.storage.data.settings.debug) {
       s.aiState = `AI: ${this.ai.state.toUpperCase()}`;
       s.aiRead = this.ai.adaptation.summary();

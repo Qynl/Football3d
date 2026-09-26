@@ -124,10 +124,18 @@ export async function runBootTests(
   frames(240); // ~4 seconds
   check('countdown gives way to play', anyGame.match.phase === 'play', anyGame.match.phase);
 
-  const before = anyGame.players[1].position.x + anyGame.players[1].position.z;
-  frames(600); // ~10 seconds of real gameplay with AI, VFX, audio, HUD, camera
-  const after = anyGame.players[1].position.x + anyGame.players[1].position.z;
-  check('AI plays inside the full game loop', Math.abs(after - before) > 0.5);
+  // Track the furthest the AI gets from where it started: summing x + z can
+  // cancel out for a diagonal run and hide a genuinely stuck opponent.
+  const start = { x: anyGame.players[1].position.x, z: anyGame.players[1].position.z };
+  let aiTravel = 0;
+  for (let i = 0; i < 60; i++) {
+    frames(10); // ~10 seconds total of real gameplay with AI, VFX, audio, HUD
+    aiTravel = Math.max(
+      aiTravel,
+      Math.hypot(anyGame.players[1].position.x - start.x, anyGame.players[1].position.z - start.z),
+    );
+  }
+  check('AI plays inside the full game loop', aiTravel > 1.5, `travelled=${aiTravel.toFixed(2)}`);
   check('timer counts down', (anyGame.match.timeLeft ?? 1) < 180, String(anyGame.match.timeLeft));
 
   // --- Pause / resume -------------------------------------------------------

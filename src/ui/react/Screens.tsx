@@ -125,8 +125,19 @@ export function HowTo({ onDone }: { onDone: () => void }): ReactNode {
           shot. The Magnus force is real; the ball will bend around a defender.
         </p>
         <p>
-          <b>Lob</b> — hold <Kbd>Q</Kbd> while kicking, or scoop the ball from underneath, to chip
-          it over your opponent.
+          <b>Lofted kick</b> — hold <Kbd>Q</Kbd> while you kick to get under the ball and scoop it
+          high over your opponent. Without it every kick is a low drive, so the two feel completely
+          different.
+        </p>
+        <p>
+          <b>Diving header</b> <Kbd>E</Kbd> — launch yourself at a ball just out of reach. It is the
+          fastest strike in the game, it costs a big chunk of stamina, and you land flat on your
+          face and have to get up. Miss it and you will regret it.
+        </p>
+        <p>
+          <b>Dash</b> <Kbd>Shift</Kbd> — a real burst of speed, not a slightly faster jog. It eats
+          the stamina ring in the corner; run it dry and you are slower than walking until it comes
+          back.
         </p>
         <p>
           <b>Air kicks</b> — jump and kick. Volleys, aerial clearances, desperate mid-air pokes: all
@@ -135,8 +146,8 @@ export function HowTo({ onDone }: { onDone: () => void }): ReactNode {
         <p>
           <b>Tackle</b> <Kbd>Right Click</Kbd> pokes at the ball. <b>Slide</b> <Kbd>Ctrl</Kbd>{' '}
           commits you to a long, fast challenge — it moves the ball hard, but hitting a player first
-          is a foul. <b>Shove</b> <Kbd>E</Kbd> barges an opponent off the ball; do it far from the
-          ball and it is a foul.
+          is a foul. <Kbd>E</Kbd> with no ball in front of you becomes a shoulder barge; do it far
+          from the ball and it is a foul.
         </p>
         <p>
           <b>Camera</b> <Kbd>C</Kbd> toggles ball-cam and player-cam. Mouse nudges the view; it

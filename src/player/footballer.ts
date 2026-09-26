@@ -223,11 +223,18 @@ export class Footballer {
     this.modifiers = m;
   }
 
+  /** True while the dash button is held with nothing left in the tank. */
+  get gassed(): boolean {
+    return this.input.sprint && this.stamina <= 1;
+  }
+
   get maxSpeed(): number {
     const sprinting = this.input.sprint && this.stamina > 1;
+    // Flogging an empty tank is actively worse than jogging: that is what
+    // turns the stamina ring into a decision instead of a decoration.
     const base = sprinting
       ? BASE.sprintSpeed * this.archetype.sprintMultiplier
-      : BASE.walkSpeed;
+      : BASE.walkSpeed * (this.gassed ? 0.74 : 1);
     return base * this.archetype.maxSpeed * this.modifiers.speed;
   }
 
@@ -372,7 +379,8 @@ export class Footballer {
     this.dashBurstTimer = Math.max(0, this.dashBurstTimer - dt);
     if (dashing) {
       this.stamina = Math.max(0, this.stamina - BASE.staminaDrain * dt);
-    } else {
+    } else if (!inp.sprint) {
+      // Holding dash on an empty tank does not refill it - let go and breathe.
       this.stamina = Math.min(
         BASE.staminaMax,
         this.stamina + BASE.staminaRegen * dt * (inputLen > 0.1 ? 0.75 : 1.4),

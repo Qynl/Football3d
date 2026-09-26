@@ -3,11 +3,13 @@ import type { HudState, UiState } from '../uiTypes.ts';
 import { cx } from './common.tsx';
 
 function chargeLabel(s: HudState): string {
-  if (s.lob) return 'LOB';
-  if (s.charge < 0.12) return 'QUICK';
-  if (s.charge < 0.42) return 'NORMAL';
-  if (s.charge < 0.78) return 'POWER';
-  return 'MAX POWER';
+  // The two kicks are genuinely different shots, so the meter says which one
+  // is coming rather than just how hard it will be hit.
+  const kind = s.lob ? 'LOFT' : 'DRIVE';
+  if (s.charge < 0.12) return `${kind} · TAP`;
+  if (s.charge < 0.42) return `${kind} · SOFT`;
+  if (s.charge < 0.78) return `${kind} · POWER`;
+  return `${kind} · MAX`;
 }
 
 export function Hud({ hud, ui }: { hud: HudState; ui: UiState }): ReactNode {
@@ -47,8 +49,8 @@ export function Hud({ hud, ui }: { hud: HudState; ui: UiState }): ReactNode {
         <div className="charge-label">{chargeLabel(hud)}</div>
       </div>
 
-      <div className="stamina">
-        <div className="label">STAMINA</div>
+      <div className={cx('stamina', hud.gassed && 'gassed')}>
+        <div className="label">{hud.gassed ? 'WINDED' : 'STAMINA'}</div>
         <div className="bar">
           <div className="fill" style={{ width: `${Math.round(hud.stamina)}%` }} />
         </div>

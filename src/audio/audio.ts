@@ -11,6 +11,8 @@ export type SfxName =
   | 'net'
   | 'tackle'
   | 'slide'
+  | 'dive'
+  | 'header'
   | 'body'
   | 'goal'
   | 'whistle'
@@ -216,6 +218,16 @@ export class AudioEngine {
       case 'slide':
         this.noise(0.55, 0.26, 950, 0.7, 'bandpass');
         this.tone(90, 60, 0.4, 0.1, 'sine');
+        break;
+      case 'dive':
+        // Effort grunt + the whoosh of a body leaving the ground.
+        this.tone(170, 110, 0.22, 0.2, 'sawtooth');
+        this.noise(0.3, 0.16, 1400, 0.5, 'bandpass');
+        break;
+      case 'header':
+        // Flat, hollow thump: the ball meeting a forehead, not a boot.
+        this.tone(140, 70, 0.16, 0.34 + i * 0.25, 'sine');
+        this.noise(0.09, 0.3, 700, 0.9, 'lowpass');
         break;
       case 'body':
         this.tone(95, 48, 0.2, 0.28 + i * 0.2, 'sine');

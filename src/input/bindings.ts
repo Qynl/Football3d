@@ -23,13 +23,13 @@ export const ACTIONS: ActionMeta[] = [
   { id: 'back', label: 'Move back', hint: 'Run towards the camera' },
   { id: 'left', label: 'Move left', hint: '' },
   { id: 'right', label: 'Move right', hint: '' },
-  { id: 'sprint', label: 'Sprint', hint: 'Burns stamina, wide turns' },
+  { id: 'sprint', label: 'Dash', hint: 'Burst of speed, burns stamina' },
   { id: 'jump', label: 'Jump', hint: 'Set up volleys, hurdle slides' },
-  { id: 'kick', label: 'Kick (hold to charge)', hint: 'Power scales with hold time' },
+  { id: 'kick', label: 'Drive (hold to charge)', hint: 'Low, hard shot. Power scales with hold time' },
   { id: 'tackle', label: 'Tackle', hint: 'Short poke at the ball' },
   { id: 'slide', label: 'Slide tackle', hint: 'Committed, risky, big impact' },
-  { id: 'challenge', label: 'Body challenge', hint: 'Shoulder barge the opponent' },
-  { id: 'lob', label: 'Lob modifier', hint: 'Hold while kicking to chip it' },
+  { id: 'challenge', label: 'Diving header', hint: 'Launch at the ball. Barges if there is no ball to reach' },
+  { id: 'lob', label: 'Lofted kick', hint: 'Hold while kicking to scoop it high' },
   { id: 'camera', label: 'Toggle camera', hint: 'Ball cam / player cam' },
 ];
 

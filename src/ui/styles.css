@@ -572,6 +572,26 @@ canvas {
   margin-bottom: 4px;
 }
 
+/* Running the tank dry is a real penalty, so it is impossible to miss. */
+.stamina.gassed .label {
+  color: #ff8b6b;
+  animation: gassed-pulse 0.6s ease-in-out infinite;
+}
+
+.stamina.gassed .fill {
+  background: linear-gradient(90deg, #ff6b6b, #ffa36b);
+}
+
+@keyframes gassed-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
 .hud-corner {
   position: absolute;
   bottom: 18px;

@@ -40,6 +40,8 @@ export interface HudState {
   curve: number;
   lob: boolean;
   stamina: number;
+  /** True while the dash button is held on an empty tank. */
+  gassed: boolean;
   aiState: string;
   aiRead: string;
   training: { score: number; combo: number; last: string } | null;
@@ -96,6 +98,7 @@ export const EMPTY_HUD: HudState = {
   curve: 0,
   lob: false,
   stamina: 100,
+  gassed: false,
   aiState: '',
   aiRead: '',
   training: null,
