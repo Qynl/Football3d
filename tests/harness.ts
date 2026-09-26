@@ -167,6 +167,18 @@ export class Sim {
     return InputManager.neutral();
   }
 
+  /**
+   * Advance only the players, leaving whatever `setInput` the caller made in
+   * place. Used to test the control frame (camera-relative strafing) itself.
+   */
+  stepPlayersOnly(dt = FIXED): void {
+    this.time += dt;
+    for (const p of this.players) {
+      p.update(dt, this.balls[0], this.arena, this.players);
+      this.physics.resolveCapsuleStatics(p.capsule);
+    }
+  }
+
   /** Advance the simulation by one fixed step with explicit inputs. */
   step(inputs: [ControlStateT, ControlStateT], dt = FIXED): void {
     this.time += dt;
@@ -181,8 +193,10 @@ export class Sim {
 
     const p0 = this.ai0 ? aiInput0! : inputs[0];
     const p1 = this.ai ? aiInput1! : inputs[1];
-    this.players[0].setInput(playable ? p0 : neutral, 0);
-    this.players[1].setInput(playable ? p1 : neutral, 0);
+    // Sim inputs are world-space directions (as the AI produces them); the
+    // camera-relative mapping is covered by its own test.
+    this.players[0].setInput(playable ? p0 : neutral, 0, 'world');
+    this.players[1].setInput(playable ? p1 : neutral, 0, 'world');
 
     for (const p of this.players) {
       p.update(dt, this.balls[0], this.arena, this.players);

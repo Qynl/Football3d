@@ -16,36 +16,54 @@ export function createPitchTexture(def: ArenaDef): THREE.CanvasTexture {
   const ctx = canvas.getContext('2d')!;
   const theme = def.theme;
 
-  ctx.fillStyle = hex(theme.grassA);
-  ctx.fillRect(0, 0, w, h);
-
-  // Mowing stripes along the length of the pitch.
-  const stripes = def.theme.surface === 'ice' ? 0 : 10;
-  for (let i = 0; i < stripes; i++) {
-    if (i % 2 === 0) continue;
-    ctx.fillStyle = hex(theme.grassB);
-    ctx.fillRect(0, (i / stripes) * h, w, h / stripes);
+  // ---- Surface: mowing stripes + grain, composed in one pixel pass --------
+  // (Drawing noise with putImageData would *replace* the pixels underneath -
+  // including the grass colour - so the base is built in the buffer itself.)
+  const a = new THREE.Color(theme.grassA);
+  const b = new THREE.Color(theme.grassB);
+  const stripes = theme.surface === 'ice' ? 0 : 9;
+  const grain = theme.surface === 'sand' ? 0.055 : theme.surface === 'ice' ? 0.022 : 0.045;
+  const img = ctx.createImageData(w, h);
+  const data = img.data;
+  // Low-frequency blotches so the turf is not perfectly uniform.
+  const blobs: [number, number, number, number][] = [];
+  for (let i = 0; i < 26; i++) {
+    blobs.push([Math.random() * w, Math.random() * h, 60 + Math.random() * 190, (Math.random() - 0.5) * 0.07]);
   }
-
-  // Surface grain.
-  const grain = ctx.createImageData(w, h);
-  const strength = theme.surface === 'sand' ? 26 : theme.surface === 'ice' ? 10 : 18;
-  for (let i = 0; i < grain.data.length; i += 4) {
-    const n = (Math.random() - 0.5) * strength;
-    grain.data[i] = 128 + n;
-    grain.data[i + 1] = 128 + n;
-    grain.data[i + 2] = 128 + n;
-    grain.data[i + 3] = Math.abs(n) * 3;
+  for (let y = 0; y < h; y++) {
+    const stripe = stripes > 0 && Math.floor((y / h) * stripes) % 2 === 1;
+    for (let x = 0; x < w; x++) {
+      const base = stripe ? b : a;
+      let shade = 1 + (Math.random() - 0.5) * grain;
+      for (const [bx, by, br, amp] of blobs) {
+        const d2 = (x - bx) * (x - bx) + (y - by) * (y - by);
+        if (d2 < br * br) shade += amp * (1 - Math.sqrt(d2) / br);
+      }
+      // Slight wear in front of each goal, like a real pitch.
+      const goalWear = Math.max(
+        0,
+        1 - Math.hypot((x - w / 2) / (w * 0.22), (Math.min(y, h - y) - h * 0.06) / (h * 0.1)),
+      );
+      shade -= goalWear * 0.06;
+      // Vignette towards the touchlines keeps the eye on the middle.
+      const edge = Math.min(1, Math.min(x, w - x) / (w * 0.08)) * Math.min(1, Math.min(y, h - y) / (h * 0.06));
+      shade *= 0.93 + edge * 0.07;
+      const o = (y * w + x) * 4;
+      data[o] = Math.max(0, Math.min(255, base.r * 255 * shade));
+      data[o + 1] = Math.max(0, Math.min(255, base.g * 255 * shade));
+      data[o + 2] = Math.max(0, Math.min(255, base.b * 255 * shade));
+      data[o + 3] = 255;
+    }
   }
-  ctx.globalCompositeOperation = 'overlay';
-  ctx.putImageData(grain, 0, 0);
-  ctx.globalCompositeOperation = 'source-over';
+  ctx.putImageData(img, 0, 0);
 
   // Markings.
   const line = hex(theme.lineColor);
   ctx.strokeStyle = line;
   ctx.fillStyle = line;
   ctx.lineWidth = Math.max(3, pxPerMeter * 0.13);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
   const inset = pxPerMeter * 0.55;
   ctx.globalAlpha = theme.surface === 'sand' ? 0.55 : 0.85;
   ctx.strokeRect(inset, inset, w - inset * 2, h - inset * 2);

@@ -81,6 +81,8 @@ export class MatchManager {
   private freeKickTaker = 0;
   private freeKickSpot = { x: 0, z: 0 };
   private lastGoal: GoalInfo | null = null;
+  /** True between a goal and the restart, so one shot can only score once. */
+  private goalLocked = false;
   private pendingRestart = 0;
   penalty = {
     round: 0,
@@ -147,6 +149,7 @@ export class MatchManager {
 
   /** Puts everyone back at their kickoff spots. */
   resetPositions(kickoffTeam: number, resetBall: boolean): void {
+    if (resetBall) this.goalLocked = false;
     const arena = this.host.arena;
     const hl = arena.def.halfLength;
     const players = this.host.players;
@@ -274,6 +277,10 @@ export class MatchManager {
   // ------------------------------------------------------------------ goals
 
   private checkGoals(): void {
+    // One ball crossing the line can rattle in the net and re-cross it many
+    // times in a single celebration; without this latch that scores again on
+    // every crossing. It is released when the ball is reset for the restart.
+    if (this.goalLocked) return;
     const host = this.host;
     const def = host.arena.def;
     for (const ball of host.balls) {
@@ -349,6 +356,7 @@ export class MatchManager {
     host.showBanner(ownGoal ? 'OWN GOAL!' : 'GOAL!', sub, 1800);
     host.onGoal(info);
 
+    this.goalLocked = true;
     this.phaseTimer = 2.0;
     this.setPhase('goal');
   }

@@ -66,7 +66,7 @@ export const BASE = {
   kickMaxSpeed: 33.5,
   chargeTime: 1.05,
   quickTapTime: 0.11,
-  kickReach: 1.08,
+  kickReach: 1.18,
   kickCooldown: 0.16,
   tackleDuration: 0.3,
   tackleReach: 1.65,
@@ -134,6 +134,11 @@ export class Footballer {
   private events: PlayerEvents;
   private input: ControlState;
   private cameraYaw = 0;
+  private inputFrame: 'camera' | 'world' = 'camera';
+  /** Sideways input relative to the way the player is facing (-1 left, 1 right). */
+  private lateralInput = 0;
+  /** Yaw at the moment the wind-up started; the aim can only drift so far. */
+  private chargeYaw = 0;
   private targetYaw = 0;
   private lastVelocity = new Vec3();
   private tmp = new Vec3();
@@ -209,9 +214,16 @@ export class Footballer {
     return this.slideTimer > 0 || this.slideRecovery > 0 || this.stumbleTimer > 0;
   }
 
-  setInput(state: ControlState, cameraYaw: number): void {
+  /**
+   * @param cameraYaw  yaw of the frame `state.moveX/moveZ` are expressed in.
+   * @param frame      'camera' maps moveX to *screen right* (what a player
+   *                   expects from A/D); 'world' takes moveX/moveZ as a plain
+   *                   world-space direction, which is how the AI steers.
+   */
+  setInput(state: ControlState, cameraYaw: number, frame: 'camera' | 'world' = 'camera'): void {
     this.input = state;
     this.cameraYaw = cameraYaw;
+    this.inputFrame = frame;
   }
 
   teleport(x: number, z: number, yaw: number): void {
@@ -297,16 +309,33 @@ export class Footballer {
     const inp = this.input;
     const traction = arena.def.traction;
 
-    // Camera-relative move vector.
-    const cos = Math.cos(this.cameraYaw);
-    const sin = Math.sin(this.cameraYaw);
-    let wx = inp.moveX * cos + inp.moveZ * sin;
-    let wz = -inp.moveX * sin + inp.moveZ * cos;
+    // Move vector in world space.
+    //
+    // With yaw measured as atan2(x, z), forward is (sin, cos) and the vector
+    // that appears to the *right* on screen is forward x up = (-cos, sin).
+    // Getting that cross product backwards is what makes A and D swap.
+    let wx: number;
+    let wz: number;
+    if (this.inputFrame === 'world') {
+      wx = inp.moveX;
+      wz = inp.moveZ;
+    } else {
+      const cos = Math.cos(this.cameraYaw);
+      const sin = Math.sin(this.cameraYaw);
+      wx = inp.moveZ * sin - inp.moveX * cos;
+      wz = inp.moveZ * cos + inp.moveX * sin;
+    }
     const inputLen = Math.hypot(wx, wz);
     if (inputLen > 1e-4) {
       wx /= inputLen;
       wz /= inputLen;
     }
+    // How far the stick is pushed sideways relative to where the player looks.
+    // Used for curve, so a right-hand press bends the shot to its right
+    // whether it came from the keyboard or from the AI.
+    const fx = Math.sin(this.yaw);
+    const fz = Math.cos(this.yaw);
+    this.lateralInput = clamp(wx * -fz + wz * fx, -1, 1) * inputLen;
 
     // Stamina.
     const wantsSprint = inp.sprint && inputLen > 0.15 && this.grounded && this.slideTimer <= 0;
@@ -366,6 +395,11 @@ export class Footballer {
         const off = angleDelta(this.yaw, desiredYaw);
         const lock = this.swingTimer > 0 ? 0.12 : lerp(1, 0.22, clamp01(this.charge * 1.4));
         desiredYaw = this.yaw + clamp(off, -0.6, 0.6) * lock;
+        // Hard limit on how far the aim can wander from where the wind-up
+        // started, so holding a direction curls the shot instead of slowly
+        // spinning the player away from the target.
+        const drift = angleDelta(this.chargeYaw, desiredYaw);
+        desiredYaw = this.chargeYaw + clamp(drift, -0.5, 0.5);
       }
       this.targetYaw = desiredYaw;
     } else if (this.grounded) {
@@ -429,12 +463,13 @@ export class Footballer {
     ) {
       this.charging = true;
       this.charge = 0;
+      this.chargeYaw = this.yaw;
     }
     if (this.charging) {
       if (inp.kickHeld) {
         this.charge = clamp01(this.charge + dt / BASE.chargeTime);
         // Sample lateral input for curve.
-        this.curveInput = damp(this.curveInput, this.input.moveX, 0.02, dt);
+        this.curveInput = damp(this.curveInput, this.lateralInput, 0.02, dt);
         this.events.onChargeTick?.(this, this.charge);
         if (!this.canAct()) this.releaseKick(ball);
       } else {
@@ -694,7 +729,11 @@ export class Footballer {
     const cz = this.position.z + f.z * 0.32;
     const dx = b.position.x - cx;
     const dz = b.position.z - cz;
-    const dy = b.position.y - (this.position.y + 0.25);
+    // The boot meets the lower half of the ball, so the contact height scales
+    // with the ball: this keeps the loft behaviour identical for a giant chaos
+    // ball, a normal one and a tiny one.
+    const footY = this.position.y + Math.min(0.25, b.radius * 0.7);
+    const dy = b.position.y - footY;
     const horiz = Math.hypot(dx, dz);
     const verticalOk = dy > -0.75 && dy < 1.55;
     if (horiz > reach || !verticalOk) {
@@ -867,8 +906,11 @@ export class Footballer {
     this.capsule.mass = BASE.mass * this.archetype.mass;
   }
 
-  /** Visual-only update, driven by the render frame rather than the fixed sim step. */
-  updateVisual(dt: number): void {
+  /**
+   * Visual-only update, driven by the render frame rather than the fixed sim
+   * step. `lookAt` is where the head should glance - usually the ball.
+   */
+  updateVisual(dt: number, lookAt?: { x: number; y: number; z: number }): void {
     const pose = this.pose;
     pose.speed = Math.hypot(this.velocity.x, this.velocity.z);
     pose.maxSpeed = BASE.sprintSpeed;
@@ -885,9 +927,21 @@ export class Footballer {
     const ax = (this.velocity.x - this.lastVelocity.x) / Math.max(dt, 1e-4);
     const az = (this.velocity.z - this.lastVelocity.z) / Math.max(dt, 1e-4);
     const f = this.facing(this.tmp);
-    const right = this.tmp2.set(f.z, 0, -f.x);
+    const right = this.tmp2.set(-f.z, 0, f.x);
     pose.leanZ = clamp((ax * f.x + az * f.z) / 40, -1, 1);
     pose.leanX = clamp((ax * right.x + az * right.z) / 40, -1, 1);
+    // Which way the body is travelling relative to where it looks, so the rig
+    // can backpedal and side-step instead of always running forwards.
+    const speed = Math.max(0.001, pose.speed);
+    pose.driveZ = clamp((this.velocity.x * f.x + this.velocity.z * f.z) / speed, -1, 1) *
+      clamp01(speed / 1.5);
+    pose.driveX = clamp((this.velocity.x * right.x + this.velocity.z * right.z) / speed, -1, 1) *
+      clamp01(speed / 1.5);
+    if (lookAt) {
+      pose.lookX = lookAt.x;
+      pose.lookY = lookAt.y;
+      pose.lookZ = lookAt.z;
+    }
 
     this.rig.root.position.set(this.position.x, this.position.y, this.position.z);
     this.rig.root.rotation.y = this.yaw;

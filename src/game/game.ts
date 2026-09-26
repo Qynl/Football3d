@@ -4,7 +4,7 @@ import { PhysicsWorld, type CapsuleRef } from '../physics/world.ts';
 import { Arena } from '../arenas/arena.ts';
 import { getArena, type ArenaDef } from '../arenas/arenaDefs.ts';
 import { Ball } from '../ball/ball.ts';
-import { Footballer, defaultModifiers, type FoulInfo, type KickInfo, type PlayerModifiers } from '../player/footballer.ts';
+import { BASE, Footballer, defaultModifiers, type FoulInfo, type KickInfo, type PlayerModifiers } from '../player/footballer.ts';
 import { getArchetype, type Cosmetics } from '../characters/characterDefs.ts';
 import { AIController } from '../ai/aiController.ts';
 import { getDifficulty, getPersonality } from '../ai/personalities.ts';
@@ -474,7 +474,7 @@ export class Game implements UiHost, MatchHost {
     }
 
     // Visual updates always run so menus stay alive.
-    for (const p of this.players) p.updateVisual(realDt);
+    for (const p of this.players) p.updateVisual(realDt, this.nearestBall(p).body.position);
     for (const b of this.balls) b.update(realDt, 0);
     this.arena.update(realDt, this.crowdHype());
     this.vfx.update(realDt);
@@ -580,7 +580,8 @@ export class Game implements UiHost, MatchHost {
     if (this.players[1].isHuman) {
       this.players[1].setInput(playable ? (p2Input ?? neutral) : neutral, camYaw);
     } else {
-      this.players[1].setInput(playable && aiInput ? aiInput : neutral, 0);
+      // The AI steers in world space; it never gets a camera.
+      this.players[1].setInput(playable && aiInput ? aiInput : neutral, 0, 'world');
     }
 
     for (const p of this.players) {
@@ -936,7 +937,7 @@ export class Game implements UiHost, MatchHost {
       const f = p.facing(this.tmpVec);
       dbg.arrow(p.position.x, 0.1, p.position.z, f.x * 1.6, 0, f.z * 1.6, 0xffff00);
       // Kick reach.
-      dbg.circle(p.position.x + f.x * 0.32, 0.06, p.position.z + f.z * 0.32, 1.08 * p.archetype.reach + 0.36, 0xffaa00, 20);
+      dbg.circle(p.position.x + f.x * 0.32, 0.06, p.position.z + f.z * 0.32, (BASE.kickReach * p.archetype.reach + this.balls[0].body.radius), 0xffaa00, 20);
       // Tackle area.
       if (p.tackleTimer > 0) {
         dbg.circle(p.position.x + f.x * 0.9, 0.08, p.position.z + f.z * 0.9, 1.3, 0xff0000, 16);

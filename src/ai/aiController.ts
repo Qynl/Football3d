@@ -742,9 +742,11 @@ export class AIController {
     if (!blocked) return this.rng.noise(0.15);
     const ox = this.opponent.position.x - this.perceivedBall.x;
     const oz = this.opponent.position.z - this.perceivedBall.z;
-    const side = ox * dir.z - oz * dir.x;
+    // Right-of-shot vector; a positive dot means the blocker stands to the
+    // right of the shot, so the ball has to bend the other way.
+    const onRight = ox * -dir.z + oz * dir.x;
     const skill = this.difficulty.anticipation * (this.personality.wallPlay + 0.6);
-    return clamp(side > 0 ? -skill : skill, -1, 1);
+    return clamp(onRight > 0 ? -skill : skill, -1, 1);
   }
 
   private planKick(dir: Vec3, charge: number, lob: boolean, curve: number): void {
@@ -788,13 +790,19 @@ export class AIController {
     // Turning into the shot uses exactly the channel a human has: the stick.
     // Facing follows movement, so the AI must physically turn to aim.
     const ballDist = this.self.position.horizontalDistanceTo(this.perceivedBall);
+    // Sideways relative to the shot, which is exactly what the curve system
+    // reads - pushing along world X would bend the ball a different way
+    // depending on which end it is shooting at.
+    const rx = -plan.dir.z;
+    const rz = plan.dir.x;
     if (ballDist < 1.25) {
-      this.out.moveX = clamp(plan.dir.x + plan.curve * 0.6, -1, 1);
-      this.out.moveZ = clamp(plan.dir.z, -1, 1);
+      this.out.moveX = clamp(plan.dir.x + plan.curve * 0.6 * rx, -1, 1);
+      this.out.moveZ = clamp(plan.dir.z + plan.curve * 0.6 * rz, -1, 1);
       this.out.sprint = false;
     } else if (Math.abs(plan.curve) > 0.05) {
       // Bend the shot: lateral input during the charge feeds the curve system.
-      this.out.moveX = clamp(plan.curve, -1, 1);
+      this.out.moveX = clamp(plan.curve * rx, -1, 1);
+      this.out.moveZ = clamp(plan.curve * rz, -1, 1);
     }
 
     const aimYaw = yawFromDirection(plan.dir.x, plan.dir.z);

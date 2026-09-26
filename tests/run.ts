@@ -105,6 +105,41 @@ section('Ball physics');
 
 section('Player movement');
 {
+  // A and D must move the player left and right *on screen*. With yaw taken as
+  // atan2(x, z) the screen-right axis is forward x up = (-cos, sin); getting
+  // that backwards is the classic inverted-strafe bug.
+  const sim = new Sim({ ai: false });
+  sim.skipCountdown();
+  const p = sim.players[0];
+  // Camera looking down +Z: screen right is -X.
+  p.teleport(0, 0, 0);
+  sim.players[1].teleport(0, 18, 0);
+  sim.ball.reset(0, 0.2, 18);
+  for (let i = 0; i < 90; i++) {
+    p.setInput({ ...Sim.input(), moveX: 1 }, 0, 'camera');
+    sim.stepPlayersOnly(FIXED);
+  }
+  check('D strafes right on screen when the camera looks down +Z', p.position.x < -0.5,
+    `x=${p.position.x.toFixed(2)}`);
+
+  // Camera looking down -Z (the other end): screen right is +X.
+  p.teleport(0, 0, Math.PI);
+  for (let i = 0; i < 90; i++) {
+    p.setInput({ ...Sim.input(), moveX: 1 }, Math.PI, 'camera');
+    sim.stepPlayersOnly(FIXED);
+  }
+  check('D still strafes right on screen when the camera is turned around',
+    p.position.x > 0.5, `x=${p.position.x.toFixed(2)}`);
+
+  // W always runs away from the camera.
+  p.teleport(0, 0, 0);
+  for (let i = 0; i < 90; i++) {
+    p.setInput({ ...Sim.input(), moveZ: 1 }, 0, 'camera');
+    sim.stepPlayersOnly(FIXED);
+  }
+  check('W runs into the screen', p.position.z > 0.5, `z=${p.position.z.toFixed(2)}`);
+}
+{
   const sim = new Sim({ ai: false });
   sim.skipCountdown();
   const p = sim.players[0];
@@ -200,6 +235,55 @@ function kickTest(charge: number, opts: { lob?: boolean; jump?: boolean } = {}):
 
 section('Kick system');
 {
+  // Pressing sideways during the wind-up must bend the shot to *that* side of
+  // the aim, whichever end of the pitch the player is shooting at.
+  const results: number[] = [];
+  for (const lateral of [1, -1]) {
+    const sim = new Sim({ ai: false });
+    sim.skipCountdown();
+    const p = sim.players[0];
+    sim.players[1].teleport(0, 16, 0);
+    p.teleport(0, -8, 0);
+    sim.ball.reset(0, 0.25, -7.3);
+    // Screen-right of a player facing +Z is -X.
+    const rx = -Math.cos(p.yaw);
+    const rz = Math.sin(p.yaw);
+    const fx = Math.sin(p.yaw);
+    const fz = Math.cos(p.yaw);
+    for (let i = 0; i < 160; i++) {
+      const inp = Sim.input();
+      if (i < 30) {
+        inp.kickHeld = true;
+        if (i === 0) inp.kickPressed = true;
+        inp.moveX = rx * lateral * 0.62 + fx * 0.78;
+        inp.moveZ = rz * lateral * 0.62 + fz * 0.78;
+      }
+      sim.step([inp, Sim.input()]);
+    }
+    results.push(sim.ball.body.position.x);
+  }
+  check('holding right while charging bends the ball right, and vice versa',
+    results[0]! < -0.25 && results[1]! > 0.25,
+    `right->x=${results[0]!.toFixed(2)} left->x=${results[1]!.toFixed(2)}`);
+}
+
+{
+  // The aim must not spin away while winding up - sideways input is curve.
+  const sim = new Sim({ ai: false });
+  sim.skipCountdown();
+  const p = sim.players[0];
+  p.teleport(0, -8, 0);
+  sim.ball.reset(0, 0.25, -7.3);
+  for (let i = 0; i < 70; i++) {
+    const inp = Sim.input();
+    inp.kickHeld = true;
+    if (i === 0) inp.kickPressed = true;
+    inp.moveX = -1; // full sideways
+    sim.step([inp, Sim.input()]);
+  }
+  check('the aim stays locked while charging', Math.abs(p.yaw) < 0.75, `yaw=${p.yaw.toFixed(2)}`);
+}
+{
   const quick = kickTest(0.02);
   const normal = kickTest(0.3);
   const power = kickTest(0.7);
@@ -281,6 +365,26 @@ section('Goals and match flow');
   check('goal phase is entered', sim.phaseLog.includes('goal'));
   sim.run(4.0);
   check('play restarts after a goal', ['countdown', 'play'].includes(sim.match.phase), `phase=${sim.match.phase}`);
+}
+
+{
+  // A ball rattling around inside the net must score exactly once, no matter
+  // how many times it re-crosses the line during the celebration.
+  const sim = new Sim({ ai: false, rules: 'timed' });
+  sim.skipCountdown();
+  const line = sim.arena.def.halfLength;
+  sim.ball.reset(0, 0.4, line - 3);
+  sim.lastTouch = { playerIndex: 0, team: 0, distance: 4, aerial: false, wall: false, speed: 20, time: 0 };
+  sim.ball.body.velocity.set(0, 0.2, 26);
+  let crossings = 0;
+  let wasIn = false;
+  sim.run(3.0, () => {
+    const inNet = sim.ball.body.position.z > line;
+    if (inNet !== wasIn) crossings++;
+    wasIn = inNet;
+  });
+  check('a ball rattling in the net scores exactly one goal',
+    sim.match.score[0] === 1, `score=${sim.match.score.join('-')} crossings=${crossings}`);
 }
 
 {
@@ -494,11 +598,17 @@ section('AI opponent');
 
 {
   // AI vs AI soak test: no crashes, no stuck ball, goals happen.
-  const sim = new Sim({ aiBoth: true, difficulty: 'hard', rules: 'timed', seed: 77 });
-  sim.skipCountdown();
-  sim.run(150);
-  const total = sim.match.score[0] + sim.match.score[1];
-  check('AI vs AI produces goals', total > 0, `score=${sim.match.score.join('-')}`);
+  let total = 0;
+  const scores: string[] = [];
+  let sim = new Sim({ aiBoth: true, difficulty: 'hard', rules: 'timed', seed: 77 });
+  for (const seed of [77, 4242]) {
+    sim = new Sim({ aiBoth: true, difficulty: 'hard', rules: 'timed', seed });
+    sim.skipCountdown();
+    sim.run(150);
+    total += sim.match.score[0] + sim.match.score[1];
+    scores.push(sim.match.score.join('-'));
+  }
+  check('AI vs AI produces goals', total > 0, `scores=${scores.join(', ')}`);
   check('AI vs AI keeps the ball in play',
     Math.abs(sim.ball.body.position.x) < sim.arena.def.halfWidth + 1.5 &&
       Math.abs(sim.ball.body.position.z) < sim.arena.def.halfLength + sim.arena.def.goalDepth + 1.5,

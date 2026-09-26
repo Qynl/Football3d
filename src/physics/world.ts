@@ -16,7 +16,7 @@ export class BallBody {
   /** Angular velocity (rad/s). */
   readonly spin = new Vec3();
   readonly prevPosition = new Vec3(0, 0.4, 0);
-  radius = 0.36;
+  radius = 0.24;
   mass = 0.44;
   restitution = 0.62;
   grounded = false;

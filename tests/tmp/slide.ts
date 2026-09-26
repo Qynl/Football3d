@@ -1,0 +1,13 @@
+import { installHeadlessEnv } from '../env.ts';
+installHeadlessEnv();
+const { CharacterRig, createPose } = await import('../../src/characters/rig.ts');
+const { DEFAULT_COSMETICS } = await import('../../src/characters/characterDefs.ts');
+const rig = new CharacterRig({ ...DEFAULT_COSMETICS });
+const pose = createPose();
+pose.speed = 7; pose.slide = 1; pose.maxSpeed = 9.4;
+for (let i = 0; i < 120; i++) rig.update(1/60, pose, 0);
+rig.root.updateMatrixWorld(true);
+const v = new (await import('three')).Vector3();
+console.log('body pos', JSON.stringify(rig['body'].position), 'rot', JSON.stringify(rig['body'].rotation.toArray()));
+rig['headGroup'].getWorldPosition(v); console.log('head world', v.toArray().map(n=>n.toFixed(2)).join(','));
+rig['footR'].getWorldPosition(v); console.log('footR world', v.toArray().map(n=>n.toFixed(2)).join(','));
