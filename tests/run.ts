@@ -591,6 +591,9 @@ section('Penalty duel');
     `attempts=${sim.match.penalty.attempts.join('/')}`);
 }
 
+// ------------------------------------------------------- robustness / stalls
+
+section('Robustness');
 {
   // Regression: a ball pinned in a corner by two bodies used to deadlock the
   // whole match. It must always squirt back out.
@@ -627,8 +630,43 @@ section('Penalty duel');
     }
   });
   check('the ball keeps moving in a contested match', moved > 300, `travelled=${moved.toFixed(0)}m`);
+
   check('a contested match produces goals',
     sim.match.score[0] + sim.match.score[1] > 0, `score=${sim.match.score.join('-')}`);
+}
+
+{
+  // Nothing may stall the match: no arena, mode or scramble is allowed to park
+  // the ball in one spot for seconds on end.
+  let worstStall = 0;
+  let worstArena = '';
+  for (const arenaId of ['classic', 'rooftop', 'beach', 'neon', 'ice', 'tiny']) {
+    const sim = new Sim({ arena: arenaId, difficulty: 'hard', rules: 'timed', seed: 9, aiBoth: true });
+    sim.skipCountdown();
+    let anchor = sim.ball.body.position.clone();
+    let stall = 0;
+    let worst = 0;
+    sim.run(90, () => {
+      if (sim.match.phase !== 'play') {
+        stall = 0;
+        anchor = sim.ball.body.position.clone();
+        return;
+      }
+      if (sim.ball.body.position.horizontalDistanceTo(anchor) > 1.5) {
+        anchor = sim.ball.body.position.clone();
+        stall = 0;
+      } else {
+        stall += 1 / 120;
+        worst = Math.max(worst, stall);
+      }
+    });
+    if (worst > worstStall) {
+      worstStall = worst;
+      worstArena = arenaId;
+    }
+  }
+  check('no arena can stall the match', worstStall < 6,
+    `worst=${worstStall.toFixed(1)}s on ${worstArena}`);
 }
 
 // ------------------------------------------------------------- full game boot

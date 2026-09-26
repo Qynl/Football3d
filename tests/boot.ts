@@ -12,6 +12,12 @@ installHeadlessEnv();
 
 const { Game } = await import('../src/game/game.ts');
 
+interface SceneNode {
+  isMesh?: boolean;
+  isLight?: boolean;
+  name?: string;
+}
+
 export interface BootResult {
   name: string;
   ok: boolean;
@@ -165,6 +171,39 @@ export async function runBootTests(
   frames(30);
   check('left mouse button charges and releases a kick', charging,
     `charge=${(human as unknown as { charge: number }).charge.toFixed(2)}`);
+
+  anyGame.quitToMenu();
+  frames(10);
+
+  // --- The scene actually contains a game ----------------------------------
+  anyGame.startMatch({
+    mode: 'quick',
+    rulesId: 'classic',
+    arenaId: 'classic',
+    difficulty: 'normal',
+    personality: 'balanced',
+    chaos: [],
+  });
+  frames(260);
+
+  const scene = (game as unknown as { scene: { traverse(cb: (o: SceneNode) => void): void } }).scene;
+  let meshes = 0;
+  let lights = 0;
+  const named = new Set<string>();
+  scene.traverse((o: SceneNode) => {
+    if (o.isMesh) meshes++;
+    if (o.isLight) lights++;
+    if (o.name) named.add(o.name);
+  });
+  check('the scene is populated with geometry', meshes > 60, `meshes=${meshes}`);
+  check('the scene is lit', lights >= 2, `lights=${lights}`);
+
+  const cam = (game as unknown as {
+    camera: { camera: { position: { x: number; y: number; z: number } } };
+  }).camera.camera;
+  check('the camera is behind and above the action',
+    cam.position.y > 1 && Math.hypot(cam.position.x, cam.position.z) > 2,
+    `cam=${cam.position.x.toFixed(1)},${cam.position.y.toFixed(1)},${cam.position.z.toFixed(1)}`);
 
   anyGame.quitToMenu();
   frames(10);
