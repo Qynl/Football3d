@@ -1,0 +1,30 @@
+{
+  "name": "kickoff",
+  "private": true,
+  "version": "1.0.0",
+  "description": "KICKOFF! - a fast, physics-driven 1v1 arcade football game for the browser",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "tsc --noEmit && node --experimental-strip-types tests/run.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Qynl/Football3d.git"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/jsdom": "^30.0.0",
+    "@types/node": "^26.6.3",
+    "@types/three": "^0.186.0",
+    "jsdom": "^30.1.1",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.1"
+  }
+}
