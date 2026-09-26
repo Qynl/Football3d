@@ -21,6 +21,17 @@ const powerFill = document.getElementById('power-fill');
 const toastEl = document.getElementById('toast');
 const finalTitle = document.getElementById('final-title');
 const finalCopy = document.getElementById('final-copy');
+const staminaReadout = document.getElementById('stamina-readout');
+const staminaFill = document.getElementById('stamina-fill');
+const skillReadout = document.getElementById('skill-readout');
+const skillFill = document.getElementById('skill-fill');
+const momentumReadout = document.getElementById('momentum-readout');
+const coachTip = document.getElementById('coach-tip');
+const lastShotSpeed = document.getElementById('last-shot-speed');
+const lastShotType = document.getElementById('last-shot-type');
+const radarPlayer = document.getElementById('radar-player');
+const radarRival = document.getElementById('radar-rival');
+const radarPuck = document.getElementById('radar-puck');
 
 const RINK = {
   width: 28,
@@ -79,6 +90,12 @@ const state = {
   possession: 'player',
   possessionGrace: 0,
   crowdPulse: 0,
+  momentum: 0,
+  skillMultiplier: 1,
+  shotStreak: 0,
+  lastShotKmh: 0,
+  lastShotLabel: 'Charge a shot',
+  coachTimer: 0,
 };
 
 const player = {
@@ -88,6 +105,7 @@ const player = {
   pitch: -0.08,
   bob: 0,
   sprintHeat: 0,
+  stamina: 1,
   stealCooldown: 0,
 };
 
@@ -128,9 +146,21 @@ let playerStick;
 let playerGloveL;
 let playerGloveR;
 let speedLines = [];
+let skillTarget;
+let iceReflection;
+const iceRails = [];
+let animationFrameId = 0;
+let booted = false;
 
-init();
-animate();
+export function bootNeonIce() {
+  if (booted) return;
+  booted = true;
+  init();
+  animate();
+  window.__NEON_ICE_DISPOSE__ = () => {
+    if (animationFrameId) cancelAnimationFrame(animationFrameId);
+  };
+}
 
 function init() {
   clock = new THREE.Clock();
@@ -229,6 +259,7 @@ function createArena() {
   createRinkLines();
   createBoardsAndGlass();
   createGoals();
+  createSkillTarget();
   createCrowd();
   createCeiling();
 }
@@ -260,6 +291,28 @@ function createIce() {
   glow.rotation.x = -Math.PI / 2;
   glow.position.y = 0.018;
   scene.add(glow);
+
+  createIceRails();
+}
+
+function createIceRails() {
+  const colors = [0x55f7ff, 0xff3df5, 0xffe16b];
+  for (let i = 0; i < 18; i += 1) {
+    const mat = new THREE.MeshBasicMaterial({
+      color: colors[i % colors.length],
+      transparent: true,
+      opacity: 0.055,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const rail = new THREE.Mesh(new THREE.PlaneGeometry(0.035 + Math.random() * 0.025, RINK.length * (0.42 + Math.random() * 0.52)), mat);
+    rail.rotation.x = -Math.PI / 2;
+    rail.position.set(-RINK.halfW + 1.8 + Math.random() * (RINK.width - 3.6), 0.031, (Math.random() - 0.5) * 8);
+    rail.userData.phase = Math.random() * Math.PI * 2;
+    rail.userData.base = mat.opacity;
+    iceRails.push(rail);
+    scene.add(rail);
+  }
 }
 
 function makeIceTextures() {
@@ -467,6 +520,62 @@ function addBox(geometry, material, x, y, z, shadows) {
 function createGoals() {
   makeGoal(-RINK.goalLine, -1, TEAM.rival);
   makeGoal(RINK.goalLine, 1, TEAM.player);
+}
+
+function createSkillTarget() {
+  const group = new THREE.Group();
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0xffe16b, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending });
+  const coreMat = new THREE.MeshBasicMaterial({ color: 0x55f7ff, transparent: true, opacity: 0.34, blending: THREE.AdditiveBlending });
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.58, 0.035, 12, 72), ringMat);
+  ring.name = 'target-ring';
+  group.add(ring);
+
+  const core = new THREE.Mesh(new THREE.CircleGeometry(0.48, 48), coreMat);
+  core.name = 'target-core';
+  group.add(core);
+
+  const horizontal = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.035, 0.02), ringMat.clone());
+  const vertical = new THREE.Mesh(new THREE.BoxGeometry(0.035, 1.35, 0.02), ringMat.clone());
+  group.add(horizontal, vertical);
+
+  const light = new THREE.PointLight(0xffe16b, 7, 6, 2);
+  light.position.set(0, 0, 0.2);
+  group.add(light);
+
+  skillTarget = {
+    group,
+    x: 0,
+    y: 1.12,
+    cycle: 0,
+    spots: [-2.55, -1.25, 0, 1.25, 2.55],
+  };
+  scene.add(group);
+  moveSkillTarget(true);
+}
+
+function moveSkillTarget(force = false) {
+  if (!skillTarget) return;
+  const oldX = skillTarget.x;
+  let next = oldX;
+  let attempts = 0;
+  do {
+    next = skillTarget.spots[Math.floor(Math.random() * skillTarget.spots.length)];
+    attempts += 1;
+  } while (!force && Math.abs(next - oldX) < 0.2 && attempts < 12);
+  skillTarget.x = next;
+  skillTarget.y = 0.92 + Math.random() * 0.64;
+  skillTarget.cycle = 5.5 + Math.random() * 3;
+  skillTarget.group.position.set(skillTarget.x, skillTarget.y, -RINK.goalLine + 0.06);
+}
+
+function updateSkillTarget(dt) {
+  if (!skillTarget) return;
+  skillTarget.cycle -= dt;
+  if (skillTarget.cycle <= 0) moveSkillTarget();
+  const pulse = 1 + Math.sin(clock.elapsedTime * 7.5) * 0.12;
+  skillTarget.group.scale.setScalar(pulse);
+  skillTarget.group.rotation.z = Math.sin(clock.elapsedTime * 2.1) * 0.12;
+  skillTarget.group.visible = state.running && !state.gameOver;
 }
 
 function makeGoal(goalZ, dir, accent) {
@@ -762,6 +871,12 @@ function startMatch(mode) {
   player.yaw = 0;
   player.pitch = -0.08;
   player.vel.set(0, 0);
+  player.stamina = 1;
+  state.momentum = 0;
+  state.skillMultiplier = 1;
+  state.shotStreak = 0;
+  state.lastShotKmh = 0;
+  state.lastShotLabel = 'Charge a shot';
   ai.cooldown = 0.8;
   ai.stun = 0;
   resetRound(true);
@@ -805,6 +920,7 @@ function resetRound(opening = false) {
   mouse.charge = 0;
   mouse.charging = false;
   mouse.leftDown = false;
+  moveSkillTarget(true);
   updatePuckMesh();
   updateAiMesh(0);
   seedTrail();
@@ -912,7 +1028,7 @@ function onPointerLockChange() {
 }
 
 function animate() {
-  requestAnimationFrame(animate);
+  animationFrameId = requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.033);
   update(dt);
   composer.render();
@@ -929,6 +1045,8 @@ function update(dt) {
 
   if (!state.gameOver) {
     state.timeRemaining = Math.max(0, state.timeRemaining - dt);
+    state.momentum = damp(state.momentum, 0, 0.06, dt);
+    state.skillMultiplier = damp(state.skillMultiplier, 1, 0.035, dt);
     if (state.timeRemaining <= 0) {
       finishGame();
     }
@@ -943,6 +1061,7 @@ function update(dt) {
   updateParticles(dt);
   updateTrail();
   updateAimHelpers();
+  updateSkillTarget(dt);
   updateCrowd(dt);
   updateHud();
 }
@@ -971,10 +1090,17 @@ function updatePlayer(dt) {
   const hasInput = input.lengthSq() > 0.001;
   if (hasInput) input.normalize();
 
-  const sprinting = keys.has('ShiftLeft') || keys.has('ShiftRight');
+  const wantsSprint = keys.has('ShiftLeft') || keys.has('ShiftRight');
   const braking = keys.has('Space');
-  const maxSpeed = sprinting ? 14.6 : 10.4;
-  const accel = sprinting ? 25 : 19;
+  const sprinting = wantsSprint && hasInput && player.stamina > 0.06;
+  player.stamina = clamp(
+    player.stamina + (sprinting ? -0.23 : braking ? 0.21 : 0.145) * dt,
+    0,
+    1
+  );
+  const fatigue = lerp(0.76, 1, player.stamina);
+  const maxSpeed = sprinting ? 14.9 * fatigue : 10.4 * lerp(0.88, 1, player.stamina);
+  const accel = sprinting ? 26 * fatigue : 19 * lerp(0.9, 1, player.stamina);
 
   if (hasInput) {
     player.vel.addScaledVector(input, accel * dt);
@@ -1008,6 +1134,9 @@ function updatePlayer(dt) {
 
   player.bob += dt * (2.5 + player.vel.length() * 1.25);
   player.sprintHeat = damp(player.sprintHeat, sprinting && hasInput ? 1 : 0, 5, dt);
+  if (sprinting && Math.random() < dt * 5.5) {
+    spray(new THREE.Vector3(player.pos.x, 0.07, player.pos.y), 2, TEAM.ice, 0.5);
+  }
   player.stealCooldown = Math.max(0, player.stealCooldown - dt);
 }
 
@@ -1015,6 +1144,8 @@ function updateAi(dt) {
   ai.cooldown = Math.max(0, ai.cooldown - dt);
   ai.stun = Math.max(0, ai.stun - dt);
   ai.dekeClock += dt;
+  const pressure = clamp((state.playerScore - state.rivalScore) * 0.08 + (180 - state.timeRemaining) / 180 * 0.12, -0.05, 0.34);
+  ai.aggression = damp(ai.aggression, 0.66 + pressure - state.momentum * 0.06, 0.65, dt);
 
   const desired = new THREE.Vector2();
   const puckPos = puck.pos;
@@ -1138,6 +1269,18 @@ function handlePuckCollisions(before) {
   }
   if (puck.pos.y > RINK.goalLine && Math.abs(puck.pos.x) < RINK.goalWidth / 2) {
     scoreGoal('rival');
+    return;
+  }
+
+  const postBand = Math.abs(Math.abs(puck.pos.x) - RINK.goalWidth / 2) < 0.22;
+  if (postBand && (puck.pos.y < -RINK.goalLine || puck.pos.y > RINK.goalLine) && speed > 10) {
+    puck.pos.copy(before);
+    puck.vel.y *= -0.58;
+    puck.vel.x += Math.sign(puck.pos.x) * 2.8;
+    state.cameraShake = Math.max(state.cameraShake, 0.13);
+    showToast('CLANG! Off the post.', 1200);
+    playTone(620, 0.08, 'triangle', 0.055);
+    spray(new THREE.Vector3(puck.pos.x, 0.45, puck.pos.y), 24, TEAM.gold, 1.4);
     return;
   }
 
@@ -1331,6 +1474,10 @@ function updateCrowd(dt) {
   crowdMats.forEach((mat, index) => {
     mat.emissiveIntensity = 0.28 + Math.sin(clock.elapsedTime * 1.8 + index) * 0.08 + state.crowdPulse;
   });
+  iceRails.forEach((rail, index) => {
+    rail.material.opacity = rail.userData.base + Math.sin(clock.elapsedTime * 1.7 + rail.userData.phase) * 0.025 + Math.max(0, state.momentum) * 0.045;
+    rail.position.z += Math.sin(clock.elapsedTime * 0.8 + index) * dt * 0.12;
+  });
 }
 
 function updateHud() {
@@ -1344,6 +1491,47 @@ function updateHud() {
   possessionEl.textContent = state.possession === 'player' ? 'you' : state.possession === 'ai' ? 'rival' : 'loose';
   shotEl.textContent = mouse.charging ? `${Math.round(mouse.charge * 100)}%` : 'ready';
   powerFill.style.width = `${Math.round(mouse.charge * 100)}%`;
+
+  const staminaPct = Math.round(player.stamina * 100);
+  staminaReadout.textContent = `${staminaPct}%`;
+  staminaFill.style.width = `${staminaPct}%`;
+  const skillPct = clamp((state.skillMultiplier - 1) / 1.3, 0, 1) * 100;
+  skillReadout.textContent = `x${state.skillMultiplier.toFixed(1)}`;
+  skillFill.style.width = `${skillPct}%`;
+
+  const momentumLabel = state.momentum > 0.35 ? 'heater' : state.momentum > 0.1 ? 'you' : state.momentum < -0.35 ? 'danger' : state.momentum < -0.1 ? 'rival' : 'neutral';
+  momentumReadout.textContent = momentumLabel;
+  lastShotSpeed.textContent = state.lastShotKmh ? `${state.lastShotKmh} km/h` : '-- km/h';
+  lastShotType.textContent = state.lastShotLabel;
+
+  updateCoachTip();
+  setRadarDot(radarPlayer, player.pos);
+  setRadarDot(radarRival, ai.pos);
+  setRadarDot(radarPuck, puck.pos);
+}
+
+function setRadarDot(element, pos) {
+  const left = clamp((pos.x + RINK.halfW) / RINK.width, 0, 1) * 100;
+  const top = clamp((pos.y + RINK.halfL) / RINK.length, 0, 1) * 100;
+  element.style.left = `${left}%`;
+  element.style.top = `${top}%`;
+}
+
+function updateCoachTip() {
+  if (!coachTip) return;
+  if (mouse.charging && state.mode === 'simulation') {
+    coachTip.textContent = 'Charging: keep the mouse moving through release for a bigger flick boost.';
+  } else if (player.stamina < 0.22) {
+    coachTip.textContent = 'Stamina is cooked. Coast or brake for a second, then sprint again.';
+  } else if (state.possession === 'ai') {
+    coachTip.textContent = 'Rival has it. Close the gap and tap E for a poke check before the slot.';
+  } else if (state.possession === 'player') {
+    coachTip.textContent = 'You have the puck. Aim for the gold target on the far net for a skill bonus.';
+  } else if (puck.vel.length() > 18) {
+    coachTip.textContent = 'Loose rocket. Read the rebound off the glass and jump on it.';
+  } else {
+    coachTip.textContent = 'Loose puck. Angle your stick toward it, or use E to reach and collect.';
+  }
 }
 
 function shootPuck() {
@@ -1383,7 +1571,10 @@ function shootPuck() {
   mouse.movementAccumulator = 0;
 
   const label = finalPower > 1.1 ? 'ABSOLUTE LASER!' : finalPower > 0.82 ? 'Hard wrister.' : 'Quick release.';
-  showToast(`${label} ${Math.round(shotSpeed * 3.6)} km/h`, 1500);
+  state.lastShotKmh = Math.round(shotSpeed * 3.6);
+  state.lastShotLabel = `${label.replace('.', '')} · ${state.mode === 'simulation' ? 'mouse flick' : 'cursor aim'}`;
+  state.momentum = clamp(state.momentum + 0.08 + finalPower * 0.05, -1, 1);
+  showToast(`${label} ${state.lastShotKmh} km/h`, 1500);
   playTone(80 + shotSpeed * 4, 0.07, 'sawtooth', 0.06);
   playTone(180 + shotSpeed * 6, 0.09, 'square', 0.025, 0.03);
 }
@@ -1408,6 +1599,9 @@ function aiShoot() {
   puck.vel.copy(direction).multiplyScalar(18 + Math.random() * 7).addScaledVector(ai.vel, 0.28);
   puck.spin += 2.8;
   ai.cooldown = 2.2;
+  state.lastShotKmh = Math.round(puck.vel.length() * 3.6);
+  state.lastShotLabel = 'Rival release';
+  state.momentum = clamp(state.momentum - 0.12, -1, 1);
   spray(new THREE.Vector3(puck.pos.x, 0.14, puck.pos.y), 18, TEAM.rival, 1.45);
   showToast('Rival snaps one at your net!', 1400);
   playTone(160, 0.09, 'sawtooth', 0.045);
@@ -1419,6 +1613,7 @@ function stealFromPlayer() {
   ai.cooldown = 1.0;
   player.vel.multiplyScalar(0.72);
   state.cameraShake = Math.max(state.cameraShake, 0.08);
+  state.momentum = clamp(state.momentum - 0.18, -1, 1);
   spray(new THREE.Vector3(player.pos.x, 0.18, player.pos.y), 12, TEAM.rival, 1.0);
   showToast('Rival pokes it loose and takes off.', 1700);
   playTone(130, 0.1, 'square', 0.035);
@@ -1434,6 +1629,7 @@ function tryPokeCheck() {
     ai.stun = 0.45;
     ai.vel.multiplyScalar(0.38);
     puck.vel.copy(player.vel);
+    state.momentum = clamp(state.momentum + 0.16, -1, 1);
     spray(new THREE.Vector3(ai.pos.x, 0.18, ai.pos.y), 18, TEAM.player, 1.3);
     showToast('Clean poke check. Your puck.', 1500);
     playTone(300, 0.07, 'triangle', 0.04);
@@ -1453,16 +1649,25 @@ function tryPokeCheck() {
 
 function scoreGoal(who) {
   if (state.goalPause > 0 || state.gameOver) return;
+  const hitTarget = who === 'player' && skillTarget && Math.abs(puck.pos.x - skillTarget.x) < 0.74;
   if (who === 'player') {
     state.playerScore += 1;
-    showToast('GOAL! You buried it. Crowd is losing it.', 2800);
+    state.shotStreak = hitTarget ? state.shotStreak + 1 : Math.max(0, state.shotStreak - 1);
+    state.skillMultiplier = clamp(state.skillMultiplier + (hitTarget ? 0.42 : 0.16), 1, 2.3);
+    state.momentum = clamp(state.momentum + (hitTarget ? 0.55 : 0.32), -1, 1);
+    showToast(hitTarget ? `TOP CHEDDAR TARGET HIT! Skill x${state.skillMultiplier.toFixed(1)}.` : 'GOAL! You buried it. Crowd is losing it.', 3000);
     playGoalHorn(TEAM.player);
+    if (hitTarget) spray(new THREE.Vector3(skillTarget.x, skillTarget.y, -RINK.goalLine), 70, TEAM.gold, 2.6);
   } else {
     state.rivalScore += 1;
+    state.shotStreak = 0;
+    state.skillMultiplier = Math.max(1, state.skillMultiplier - 0.25);
+    state.momentum = clamp(state.momentum - 0.48, -1, 1);
     showToast('Rival scores. Shake it off and answer back.', 2800);
     playGoalHorn(TEAM.rival);
     state.cameraShake = Math.max(state.cameraShake, 0.18);
   }
+  moveSkillTarget(true);
   state.possession = null;
   state.goalPause = 1.85;
   state.crowdPulse = 1.0;

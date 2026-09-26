@@ -1,16 +1,29 @@
 {
   "name": "neon-ice-1v1-hockey-sim",
-  "version": "1.0.0",
-  "description": "A first-person 1v1 hockey simulator with simulation and click-to-shoot modes.",
+  "version": "2.0.0",
+  "description": "A React + Vite first-person 1v1 hockey simulator with simulation and click-to-shoot modes.",
   "private": true,
+  "type": "module",
   "scripts": {
-    "start": "python3 -m http.server 4173 --bind 0.0.0.0"
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "start": "vite --host 0.0.0.0"
   },
   "keywords": [
     "hockey",
     "threejs",
+    "vite",
+    "react",
     "game",
     "first-person"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@vitejs/plugin-react": "^6.1.1",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "three": "^0.160.0",
+    "vite": "^8.3.1"
+  }
 }

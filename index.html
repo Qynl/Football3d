@@ -3,87 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Neon Ice is a first-person 1v1 hockey simulator with mouse-look simulation and click-to-shoot modes." />
     <title>Neon Ice 1v1 Hockey Sim</title>
-    <link rel="stylesheet" href="./styles.css" />
-    <script type="importmap">
-      {
-        "imports": {
-          "three": "./vendor/three/build/three.module.js",
-          "three/addons/": "./vendor/three/examples/jsm/"
-        }
-      }
-    </script>
   </head>
   <body>
-    <div id="game-root"></div>
-
-    <div id="hud" class="hud hidden">
-      <div class="scoreboard glass-panel">
-        <div class="team you">YOU <span id="player-score">0</span></div>
-        <div class="clock" id="game-clock">03:00</div>
-        <div class="team rival"><span id="rival-score">0</span> RIVAL</div>
-      </div>
-
-      <div class="top-left glass-panel">
-        <div class="mode-pill" id="mode-pill">SIMULATION</div>
-        <div class="stat-line"><span>Speed</span><strong id="speed-readout">0.0 m/s</strong></div>
-        <div class="stat-line"><span>Puck</span><strong id="possession-readout">loose</strong></div>
-        <div class="stat-line"><span>Shot</span><strong id="shot-readout">ready</strong></div>
-      </div>
-
-      <div class="power-wrap glass-panel">
-        <span>SHOT POWER</span>
-        <div class="power-track"><div id="power-fill"></div></div>
-      </div>
-
-      <div id="crosshair" class="crosshair">
-        <span></span><span></span><span></span><span></span>
-      </div>
-
-      <div id="toast" class="toast">Win the faceoff. Make it filthy.</div>
-
-      <div class="help glass-panel">
-        <b>Controls</b>
-        <p><span>WASD</span> skate · <span>SHIFT</span> sprint · <span>Mouse</span> aim/look</p>
-        <p><span>Hold LMB</span> charge · <span>Release</span> shoot · <span>E</span> poke/check</p>
-        <p><span>M</span> switch mode · <span>R</span> reset puck · <span>ESC</span> unlock mouse</p>
-      </div>
-    </div>
-
-    <div id="start-screen" class="start-screen">
-      <div class="hero-card">
-        <div class="eyebrow">FIRST PERSON · ONE V ONE · REAL MOUSE AIM</div>
-        <h1>NEON ICE</h1>
-        <h2>1v1 Hockey Simulator</h2>
-        <p>
-          Skate in first person, fight the puck off the glass, aim with real mouse movement,
-          charge a slapshot, and beat the rival AI in a glowing arena built for fast plays.
-        </p>
-        <div class="mode-grid">
-          <button id="start-sim" class="primary-action">
-            <strong>Simulation mode</strong>
-            <span>Pointer lock, mouse-look, manual shot aiming</span>
-          </button>
-          <button id="start-click" class="secondary-action">
-            <strong>Click-to-shoot mode</strong>
-            <span>Mouse cursor aims at the ice/goal, click to fire</span>
-          </button>
-        </div>
-        <div class="tip-row">
-          <span>Tip:</span> In sim mode, move the mouse while charging for harder, dirtier shots.
-        </div>
-      </div>
-    </div>
-
-    <div id="end-screen" class="end-screen hidden">
-      <div class="hero-card compact">
-        <div class="eyebrow">FINAL HORN</div>
-        <h1 id="final-title">YOU WIN</h1>
-        <p id="final-copy">Run it back?</p>
-        <button id="restart" class="primary-action single">Restart Match</button>
-      </div>
-    </div>
-
-    <script type="module" src="./main.js"></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

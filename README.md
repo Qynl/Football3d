@@ -1,16 +1,32 @@
 # Neon Ice 1v1 Hockey Sim
 
-A first-person 1v1 hockey simulator built with Three.js. The required Three.js runtime files are vendored in `vendor/three`, so the game does not need a CDN to run.
+A React + Vite first-person 1v1 hockey simulator powered by Three.js.
 
-## Play
+## What's new
 
-Open `index.html` with a local web server. For example:
+- React-rendered menu, HUD, stat panels, radar, live coach, and match screens.
+- Vite dev/build pipeline with bundled Three.js.
+- First-person simulation mode with pointer-lock mouse look and flick-boost shooting.
+- Click-to-shoot mode with cursor aim.
+- Adaptive rival AI that steals, rushes, shoots, and gets more aggressive as the game goes on.
+- Stamina, shot power, skill multiplier, momentum, last-shot readout, and target-shot bonus.
+- Neon arena visuals with bloom, glass, ice scratches, dynamic light rails, puck trails, goal horn, and particle ice spray.
+
+## Run locally
 
 ```bash
-python3 -m http.server 4173 --bind 0.0.0.0
+npm install
+npm run dev
 ```
 
-Then visit the served URL.
+The Vite server binds to `0.0.0.0:4173` for Arena live preview support.
+
+## Production build
+
+```bash
+npm run build
+npm run preview
+```
 
 ## Modes
 
@@ -20,8 +36,8 @@ Then visit the served URL.
 ## Controls
 
 - `WASD` skate
-- `SHIFT` sprint
-- `SPACE` brake
+- `SHIFT` sprint; stamina matters
+- `SPACE` brake/recover
 - `Mouse` aim/look
 - `Hold LMB` charge shot
 - `Release LMB` shoot
