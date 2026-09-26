@@ -5,9 +5,12 @@ A React + Vite first-person 1v1 hockey simulator powered by Three.js.
 ## Latest upgrade
 
 - Darker, less blown-out rink lighting: lower exposure, lower bloom, darker ice, dimmer HUD glass, vignette, and restrained neon.
-- Active goalies at both nets with lateral tracking, save animations, rebounds, and save feedback.
+- Active goalies at both nets with lateral tracking, dive animations, save rebounds, and save feedback.
 - Real mouse-driven stickhandling: raw mouse movement shifts the blade forehand/backhand, controls puck drag, and feeds shot direction.
+- Shot identity: snap shots, slapshots, drag wristers, and backhands now have different speed, accuracy, curve, and feel.
 - Real puck elevation: mouse pitch controls low/high shots, crossbars happen, and target snipes beat the goalie.
+- Better contact: high-speed `E` triggers a body check that can blow up the rival and force a loose puck.
+- Smarter rival: AI dekes, fakes, chooses open net around the goalie, shoots high/low, and adds curve.
 - Better game feel: tighter sprint/fatigue tuning, dynamic camera FOV, post clanks, puck shadow/elevation feedback, less visual washout, and clearer puck/radar feedback.
 - Smarter pressure: rival AI gets more aggressive with score/time momentum and goalies force actual shot placement instead of free goals.
 - Target-shot bonus still rewards real mouse aim in simulation mode.

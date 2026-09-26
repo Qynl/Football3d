@@ -120,6 +120,9 @@ const ai = {
   aggression: 0.66,
   stun: 0,
   dekeClock: 0,
+  decisionTimer: 0,
+  dekeSide: 1,
+  fakeTimer: 0,
   group: null,
 };
 
@@ -130,13 +133,14 @@ const puck = {
   air: 0,
   airVel: 0,
   shotHigh: 0,
+  curve: 0,
   group: null,
   lastShotBy: 'player',
 };
 
 const goalies = {
-  rival: { x: 0, z: -RINK.goalLine + 0.72, dir: 1, color: 0xff455b, group: null, saveFlash: 0, recovery: 0, saveCount: 0 },
-  player: { x: 0, z: RINK.goalLine - 0.72, dir: -1, color: 0x55f7ff, group: null, saveFlash: 0, recovery: 0, saveCount: 0 },
+  rival: { x: 0, z: -RINK.goalLine + 0.72, dir: 1, color: 0xff455b, group: null, saveFlash: 0, recovery: 0, saveCount: 0, diveTimer: 0, diveDir: 0 },
+  player: { x: 0, z: RINK.goalLine - 0.72, dir: -1, color: 0x55f7ff, group: null, saveFlash: 0, recovery: 0, saveCount: 0, diveTimer: 0, diveDir: 0 },
 };
 
 const mouse = {
@@ -740,6 +744,7 @@ function updateGoalies(dt) {
     if (!goalie.group) continue;
     goalie.recovery = Math.max(0, goalie.recovery - dt);
     goalie.saveFlash = Math.max(0, goalie.saveFlash - dt);
+    goalie.diveTimer = Math.max(0, goalie.diveTimer - dt);
 
     const puckComing = key === 'rival' ? puck.vel.y < -2 || puck.pos.y < -8 : puck.vel.y > 2 || puck.pos.y > 8;
     const lead = puckComing ? puck.vel.x * 0.16 : 0;
@@ -749,8 +754,10 @@ function updateGoalies(dt) {
     const maxStep = (goalie.recovery > 0 ? 2.6 : 6.4) * dt;
     goalie.x += clamp(wantedX - goalie.x, -maxStep, maxStep);
 
-    goalie.group.position.x = goalie.x;
-    goalie.group.position.y = Math.sin(clock.elapsedTime * 8 + (key === 'rival' ? 0 : 1.7)) * 0.015 + goalie.saveFlash * 0.08;
+    const divePose = goalie.diveTimer > 0 ? Math.sin((goalie.diveTimer / 0.52) * Math.PI) : 0;
+    goalie.group.position.x = goalie.x + goalie.diveDir * divePose * 0.28;
+    goalie.group.position.y = Math.sin(clock.elapsedTime * 8 + (key === 'rival' ? 0 : 1.7)) * 0.015 + goalie.saveFlash * 0.08 + divePose * 0.05;
+    goalie.group.rotation.z = goalie.diveDir * divePose * 0.34;
     goalie.group.children.forEach((child, index) => {
       if (!child.isMesh) return;
       const homeY = child.userData.homeY ?? child.position.y;
@@ -789,6 +796,8 @@ function tryGoalieSave(key, before, speed) {
   state.possessionGrace = 0.38;
   goalie.saveFlash = 0.38;
   goalie.recovery = 0.42;
+  goalie.diveDir = Math.sign(puck.pos.x - goalie.x) || (Math.random() > 0.5 ? 1 : -1);
+  goalie.diveTimer = lateral > 0.95 || highShot ? 0.52 : 0.28;
   goalie.saveCount += 1;
   state.lastShotLabel = key === 'rival' ? 'Goalie save' : 'Your goalie save';
   state.momentum = clamp(state.momentum + (key === 'rival' ? -0.16 : 0.12), -1, 1);
@@ -1093,7 +1102,12 @@ function resetRound(opening = false) {
     goalie.x = 0;
     goalie.saveFlash = 0;
     goalie.recovery = 0;
-    if (goalie.group) goalie.group.position.set(0, 0, goalie.z);
+    goalie.diveTimer = 0;
+    goalie.diveDir = 0;
+    if (goalie.group) {
+      goalie.group.position.set(0, 0, goalie.z);
+      goalie.group.rotation.z = 0;
+    }
   }
   puck.pos.set(0, opening ? 16.2 : 0.2);
   puck.vel.set(0, 0);
@@ -1101,6 +1115,7 @@ function resetRound(opening = false) {
   puck.air = 0;
   puck.airVel = 0;
   puck.shotHigh = 0;
+  puck.curve = 0;
   state.possession = opening ? 'player' : null;
   state.possessionGrace = 0.35;
   mouse.charge = 0;
@@ -1352,6 +1367,8 @@ function updatePlayer(dt) {
 function updateAi(dt) {
   ai.cooldown = Math.max(0, ai.cooldown - dt);
   ai.stun = Math.max(0, ai.stun - dt);
+  ai.decisionTimer = Math.max(0, ai.decisionTimer - dt);
+  ai.fakeTimer = Math.max(0, ai.fakeTimer - dt);
   ai.dekeClock += dt;
   const pressure = clamp((state.playerScore - state.rivalScore) * 0.08 + (180 - state.timeRemaining) / 180 * 0.12, -0.05, 0.34);
   ai.aggression = damp(ai.aggression, 0.66 + pressure - state.momentum * 0.06, 0.65, dt);
@@ -1365,9 +1382,21 @@ function updateAi(dt) {
   if (state.goalPause > 0 || state.gameOver) {
     desired.set(0, 0);
   } else if (state.possession === 'ai') {
-    const laneX = Math.sin(ai.dekeClock * 2.8) * 2.5 + Math.sin(ai.dekeClock * 6.2) * 0.65;
-    desired.set(laneX, RINK.goalLine - 3.6).sub(ai.pos);
-    if (ai.pos.y > 12.8 && ai.cooldown <= 0) {
+    if (ai.decisionTimer <= 0) {
+      ai.dekeSide = Math.random() > 0.5 ? 1 : -1;
+      if (Math.abs(player.pos.x - ai.pos.x) < 2.2) ai.dekeSide = ai.pos.x <= player.pos.x ? -1 : 1;
+      ai.fakeTimer = Math.random() < 0.34 && ai.pos.y > 6 ? 0.42 : 0;
+      ai.decisionTimer = 0.46 + Math.random() * 0.58;
+    }
+    const playerGap = ai.pos.distanceTo(player.pos);
+    const laneX = ai.dekeSide * 2.7 + Math.sin(ai.dekeClock * 3.4) * 1.05 + Math.sin(ai.dekeClock * 8.6) * 0.38;
+    const attackZ = ai.fakeTimer > 0 ? ai.pos.y - 1.8 : RINK.goalLine - 3.2;
+    desired.set(laneX, attackZ).sub(ai.pos);
+    if (playerGap < 2.4 && ai.stun <= 0) {
+      const evade = getAiRight().multiplyScalar(ai.dekeSide * 6.5 * dt);
+      ai.vel.add(evade);
+    }
+    if (ai.pos.y > 11.6 && ai.cooldown <= 0 && ai.fakeTimer <= 0) {
       aiShoot();
     }
   } else if (state.possession === 'player') {
@@ -1474,6 +1503,11 @@ function updatePuck(dt) {
     }
   } else if (state.possession === null) {
     const before = puck.pos.clone();
+    if (Math.abs(puck.curve) > 0.01 && puck.vel.length() > 8) {
+      const normal = new THREE.Vector2(-puck.vel.y, puck.vel.x).normalize();
+      puck.vel.addScaledVector(normal, puck.curve * dt);
+      puck.curve *= Math.exp(-1.9 * dt);
+    }
     puck.pos.addScaledVector(puck.vel, dt);
     puck.vel.multiplyScalar(Math.exp(-1.15 * dt));
     puck.airVel -= 6.2 * dt;
@@ -1821,9 +1855,16 @@ function shootPuck() {
   const held = clock.elapsedTime - mouse.chargeStart;
   const baseCharge = clamp(Math.max(mouse.charge, held / 1.05), 0.08, 1);
   const flickBoost = state.mode === 'simulation' ? clamp(mouse.movementAccumulator / 260, 0, 0.38) : 0.08;
-  const finalPower = clamp(0.34 + baseCharge * 0.78 + flickBoost, 0.38, 1.38);
+  const sweep = Math.abs(mouse.releaseVector.x);
+  const isBackhand = mouse.stickSide < -0.28;
+  const isSlapshot = baseCharge > 0.88 && held > 0.75 && mouse.movementAccumulator > 110;
+  const isDragShot = sweep > 150 && !isBackhand;
+  const isSnap = held < 0.38 && !isSlapshot;
+  const shotKind = isBackhand ? 'Backhand' : isSlapshot ? 'Slapshot' : isDragShot ? 'Drag wrister' : isSnap ? 'Snap shot' : 'Wrister';
+  const shotModifier = isSlapshot ? 1.16 : isBackhand ? 0.84 : isDragShot ? 1.03 : isSnap ? 0.93 : 1;
+  const finalPower = clamp((0.34 + baseCharge * 0.78 + flickBoost) * shotModifier, 0.34, 1.54);
   const direction = getShotDirection();
-  const spread = (1 - baseCharge) * 0.085 + (state.mode === 'simulation' ? 0.018 : 0.035);
+  const spread = (1 - baseCharge) * (isBackhand ? 0.12 : 0.07) + (state.mode === 'simulation' ? 0.012 : 0.032);
   direction.rotateAround(new THREE.Vector2(0, 0), (Math.random() - 0.5) * spread);
   direction.normalize();
 
@@ -1840,7 +1881,8 @@ function shootPuck() {
   puck.airVel = pitchIntent * (4.2 + finalPower * 6.4);
   puck.shotHigh = pitchIntent;
   puck.vel.copy(direction).multiplyScalar(shotSpeed).addScaledVector(player.vel, 0.32);
-  puck.spin += shotSpeed * 0.16;
+  puck.curve = clamp(mouse.releaseVector.x / 38 + mouse.stickSide * 1.4, -7.2, 7.2) * (isDragShot ? 1.45 : isBackhand ? 0.72 : 1);
+  puck.spin += shotSpeed * (isSlapshot ? 0.24 : 0.16);
 
   const shotOrigin = new THREE.Vector3(puck.pos.x, 0.15, puck.pos.y);
   spray(shotOrigin, Math.floor(12 + finalPower * 22), TEAM.player, 1.25 + finalPower);
@@ -1849,10 +1891,10 @@ function shootPuck() {
   state.crowdPulse = Math.max(state.crowdPulse, 0.18 + finalPower * 0.1);
   mouse.movementAccumulator = 0;
 
-  const label = finalPower > 1.1 ? 'ABSOLUTE LASER!' : finalPower > 0.82 ? 'Hard wrister.' : 'Quick release.';
+  const label = isSlapshot ? 'SLAP BOMB!' : isDragShot ? 'Drag release!' : isBackhand ? 'Backhander.' : finalPower > 1.08 ? 'ABSOLUTE LASER!' : isSnap ? 'Quick snap.' : 'Hard wrister.';
   state.lastShotKmh = Math.round(shotSpeed * 3.6);
-  state.lastShotLabel = `${label.replace('.', '')} · ${puck.shotHigh > 0.52 ? 'high' : 'low'} · ${state.mode === 'simulation' ? 'mouse flick' : 'cursor aim'}`;
-  state.momentum = clamp(state.momentum + 0.08 + finalPower * 0.05, -1, 1);
+  state.lastShotLabel = `${shotKind} · ${puck.shotHigh > 0.52 ? 'high' : 'low'} · curve ${Math.abs(puck.curve).toFixed(1)}`;
+  state.momentum = clamp(state.momentum + 0.08 + finalPower * 0.05 + (isDragShot ? 0.04 : 0), -1, 1);
   showToast(`${label} ${state.lastShotKmh} km/h`, 1500);
   playTone(80 + shotSpeed * 4, 0.07, 'sawtooth', 0.06);
   playTone(180 + shotSpeed * 6, 0.09, 'square', 0.025, 0.03);
@@ -1873,23 +1915,29 @@ function getShotDirection() {
 
 function aiShoot() {
   if (state.possession !== 'ai') return;
-  const targetX = clamp(player.pos.x + (Math.random() - 0.5) * 2.8, -RINK.goalWidth / 2 + 0.35, RINK.goalWidth / 2 - 0.35);
+  const goalie = goalies.player;
+  const openSide = goalie.x <= 0 ? 1 : -1;
+  const pressureMiss = clamp(player.pos.distanceTo(ai.pos) / 5, 0, 1);
+  const targetX = clamp(goalie.x + openSide * (1.25 + Math.random() * 1.45) + (Math.random() - 0.5) * pressureMiss, -RINK.goalWidth / 2 + 0.35, RINK.goalWidth / 2 - 0.35);
   const target = new THREE.Vector2(targetX, RINK.goalLine + 0.3);
   const direction = target.sub(puck.pos).normalize();
   state.possession = null;
   state.possessionGrace = 0.22;
   puck.lastShotBy = 'ai';
   puck.air = 0.02;
-  puck.airVel = 0.8 + Math.random() * 1.8;
-  puck.shotHigh = clamp(puck.airVel / 5.8, 0, 1);
-  puck.vel.copy(direction).multiplyScalar(18 + Math.random() * 7).addScaledVector(ai.vel, 0.28);
-  puck.spin += 2.8;
-  ai.cooldown = 2.2;
+  const aiHigh = Math.random() < 0.42;
+  puck.airVel = aiHigh ? 2.7 + Math.random() * 2.9 : 0.65 + Math.random() * 1.25;
+  puck.shotHigh = clamp(puck.airVel / 6.3, 0, 1);
+  const shotSpeed = 18 + Math.random() * 8 + ai.aggression * 2.2;
+  puck.vel.copy(direction).multiplyScalar(shotSpeed).addScaledVector(ai.vel, 0.28);
+  puck.curve = ai.dekeSide * (1.2 + Math.random() * 2.2);
+  puck.spin += 2.8 + Math.random() * 1.4;
+  ai.cooldown = 2.0 + Math.random() * 0.4;
   state.lastShotKmh = Math.round(puck.vel.length() * 3.6);
-  state.lastShotLabel = 'Rival release';
+  state.lastShotLabel = aiHigh ? 'Rival top-shelf try' : 'Rival low release';
   state.momentum = clamp(state.momentum - 0.12, -1, 1);
   spray(new THREE.Vector3(puck.pos.x, 0.14, puck.pos.y), 18, TEAM.rival, 1.45);
-  showToast('Rival snaps one at your net!', 1400);
+  showToast(aiHigh ? 'Rival goes upstairs — track it!' : 'Rival shoots low for a rebound!', 1400);
   playTone(160, 0.09, 'sawtooth', 0.045);
 }
 
@@ -1909,6 +1957,26 @@ function tryPokeCheck() {
   if (player.stealCooldown > 0) return;
   player.stealCooldown = 0.55;
   const dist = player.pos.distanceTo(ai.pos);
+  const playerSpeed = player.vel.length();
+  if (dist < 1.72 && playerSpeed > 7.2) {
+    ai.stun = 0.95;
+    ai.vel.addScaledVector(getPlayerForward(), 4.5 + playerSpeed * 0.32);
+    player.vel.multiplyScalar(0.62);
+    state.cameraShake = Math.max(state.cameraShake, 0.16);
+    state.momentum = clamp(state.momentum + 0.2, -1, 1);
+    if (state.possession === 'ai') {
+      state.possession = null;
+      puck.pos.copy(ai.pos).addScaledVector(getPlayerForward(), 0.72);
+      puck.vel.copy(getPlayerForward()).multiplyScalar(6 + playerSpeed * 0.25).addScaledVector(getPlayerRight(), (Math.random() - 0.5) * 4);
+      puck.air = 0.05;
+      puck.airVel = 1.1;
+      puck.lastShotBy = 'player';
+    }
+    spray(new THREE.Vector3(ai.pos.x, 0.2, ai.pos.y), 34, 0xffffff, 1.7);
+    showToast('BOOM. Clean body check — puck is there.', 1500);
+    playTone(72, 0.11, 'square', 0.06);
+    return;
+  }
   if (state.possession === 'ai' && dist < 2.75) {
     state.possession = 'player';
     state.possessionGrace = 0.46;
