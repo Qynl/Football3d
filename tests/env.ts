@@ -1,8 +1,11 @@
 /**
  * Headless environment shim.
- * The sandbox has no browser available, so we stub just enough DOM/WebGL for the
- * real game code to boot and be simulated in Node for automated play-testing.
+ *
+ * There is no browser in this sandbox, so tests run the real game against a
+ * jsdom document (React needs a genuine DOM) plus a hand-written WebGL2/2D
+ * canvas stub (three.js needs a context, but there is no GPU).
  */
+import { JSDOM } from 'jsdom';
 
 interface FakeCtx2D {
   [key: string]: unknown;
@@ -135,23 +138,16 @@ function fakeWebGL(): unknown {
   return new Proxy({} as Record<string, unknown>, handler);
 }
 
-const listeners = new Map<string, ((e: unknown) => void)[]>();
+let jsdomWindow: (Window & typeof globalThis) | null = null;
 
-/** Fire a DOM-ish event at whatever the game registered on window. */
+/** Fire a real DOM event at the window, exactly as a browser would. */
 export function fireEvent(type: string, init: Record<string, unknown> = {}): void {
-  const event = {
-    type,
-    preventDefault: () => undefined,
-    stopPropagation: () => undefined,
-    repeat: false,
-    button: 0,
-    buttons: 0,
-    movementX: 0,
-    movementY: 0,
-    deltaY: 0,
-    ...init,
-  };
-  for (const cb of listeners.get(type) ?? []) cb(event);
+  const w = jsdomWindow as unknown as Record<string, new (t: string, i?: unknown) => Event>;
+  if (!jsdomWindow) throw new Error('installHeadlessEnv() first');
+  const ctor =
+    type.startsWith('key') ? w.KeyboardEvent : type.startsWith('mouse') ? w.MouseEvent : w.Event;
+  const event = new ctor(type, { bubbles: true, cancelable: true, ...init });
+  jsdomWindow.dispatchEvent(event);
 }
 
 export function installHeadlessEnv(): void {
@@ -159,103 +155,58 @@ export function installHeadlessEnv(): void {
   if (g.__kickoffEnv) return;
   g.__kickoffEnv = true;
 
-  const makeElement = (tag: string): Record<string, unknown> => {
-    const children: unknown[] = [];
-    const element: Record<string, unknown> = {
-      tagName: tag.toUpperCase(),
-      style: {},
-      className: '',
-      children,
-      dataset: {},
-      width: 300,
-      height: 150,
-      clientWidth: 1280,
-      clientHeight: 720,
-      textContent: '',
-      innerHTML: '',
-      classList: {
-        add: () => undefined,
-        remove: () => undefined,
-        toggle: () => undefined,
-        contains: () => false,
-      },
-      append: (...nodes: unknown[]) => children.push(...nodes),
-      appendChild: (n: unknown) => {
-        children.push(n);
-        return n;
-      },
-      removeChild: () => undefined,
-      remove: () => undefined,
-      setAttribute: () => undefined,
-      getAttribute: () => null,
-      addEventListener: () => undefined,
-      removeEventListener: () => undefined,
-      getContext: (type: string) =>
-        type === '2d' ? fakeContext2D(Number(element.width), Number(element.height)) : fakeWebGL(),
-      getBoundingClientRect: () => ({ left: 0, top: 0, width: 1280, height: 720 }),
-      focus: () => undefined,
-      requestPointerLock: () => undefined,
-      toDataURL: () => 'data:,',
-      firstChild: null,
-      offsetWidth: 100,
-    };
-    return element;
+  const dom = new JSDOM(
+    `<!doctype html><html><body><div id="root"></div></body></html>`,
+    { url: 'http://localhost:5173/', pretendToBeVisual: true },
+  );
+  const win = dom.window as unknown as Window & typeof globalThis;
+  jsdomWindow = win;
+
+  // Canvases have no GPU here: hand back the stub contexts instead.
+  const canvasProto = (dom.window as unknown as {
+    HTMLCanvasElement: { prototype: { getContext: unknown } };
+  }).HTMLCanvasElement.prototype;
+  canvasProto.getContext = function getContext(this: { width: number; height: number }, type: string) {
+    return type === '2d' ? fakeContext2D(this.width || 300, this.height || 150) : fakeWebGL();
   };
 
-  const doc: Record<string, unknown> = {
-    createElement: (tag: string) => makeElement(tag),
-    createElementNS: (_ns: string, tag: string) => makeElement(tag),
-    createTextNode: (text: string) => ({ nodeType: 3, textContent: text }),
-    getElementById: () => makeElement('div'),
-    querySelector: () => makeElement('div'),
-    body: makeElement('body'),
-    documentElement: makeElement('html'),
-    addEventListener: () => undefined,
-    removeEventListener: () => undefined,
-    exitPointerLock: () => undefined,
-    pointerLockElement: null,
-    hidden: false,
-  };
-
-  const store = new Map<string, string>();
-
-  g.document = doc;
-  g.window = {
-    innerWidth: 1280,
-    innerHeight: 720,
-    devicePixelRatio: 1,
-    addEventListener: (type: string, cb: (e: unknown) => void) => {
-      const arr = listeners.get(type) ?? [];
-      arr.push(cb);
-      listeners.set(type, arr);
-    },
-    removeEventListener: () => undefined,
-    setTimeout: (fn: () => void, ms?: number) => setTimeout(fn, ms) as unknown as number,
-    clearTimeout: (id: number) => clearTimeout(id),
-    setInterval: (fn: () => void, ms?: number) => setInterval(fn, ms) as unknown as number,
-    clearInterval: (id: number) => clearInterval(id),
-    requestAnimationFrame: (cb: (t: number) => void) => setTimeout(() => cb(performance.now()), 16) as unknown as number,
-    matchMedia: () => ({ matches: false, addEventListener: () => undefined }),
-    AudioContext: undefined,
-    location: { reload: () => undefined },
-  };
-  const define = (key: string, value: unknown) => {
+  const define = (key: string, value: unknown): void => {
     try {
       Object.defineProperty(g, key, { value, configurable: true, writable: true });
     } catch {
-      /* ignore read-only globals */
+      /* some globals are read-only; the jsdom copy below still covers them */
     }
   };
-  define('navigator', { userAgent: 'node', getGamepads: () => [] });
-  define('localStorage', {
-    getItem: (k: string) => store.get(k) ?? null,
-    setItem: (k: string, v: string) => store.set(k, v),
-    removeItem: (k: string) => store.delete(k),
-    clear: () => store.clear(),
-  });
-  g.requestAnimationFrame = (g.window as Record<string, unknown>).requestAnimationFrame;
-  g.HTMLElement = class {};
-  g.Image = class {};
-  g.ImageData = class {};
-  g.self = g.window;
+
+  // Publish the jsdom globals the game (and React) expect to find.
+  define('window', win);
+  define('document', win.document);
+  define('navigator', win.navigator);
+  define('localStorage', win.localStorage);
+  define('self', win);
+  for (const key of [
+    'HTMLElement',
+    'HTMLCanvasElement',
+    'HTMLInputElement',
+    'Element',
+    'Node',
+    'Event',
+    'KeyboardEvent',
+    'MouseEvent',
+    'PointerEvent',
+    'CustomEvent',
+    'Image',
+    'ImageData',
+    'MutationObserver',
+    'getComputedStyle',
+    'DOMRect',
+    'requestAnimationFrame',
+    'cancelAnimationFrame',
+  ]) {
+    const value = (win as unknown as Record<string, unknown>)[key];
+    if (value !== undefined) define(key, value);
+  }
+
+  // jsdom has no WebAudio; the engine already degrades gracefully without it.
+  define('AudioContext', undefined);
 }

@@ -13,7 +13,7 @@ import { Vfx } from '../effects/vfx.ts';
 import { AudioEngine } from '../audio/audio.ts';
 import { InputManager, type ControlState } from '../input/input.ts';
 import { Storage } from '../storage/storage.ts';
-import { Ui, type HudState, type StartOptions, type UiHost } from '../ui/ui.ts';
+import { Ui, type HudState, type StartOptions, type UiHost } from '../ui/ui.tsx';
 import {
   MatchManager,
   type GoalInfo,

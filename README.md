@@ -7,10 +7,13 @@ no faffing about: you are playing within a couple of seconds of loading.
 Everything here is original — geometry, characters, sounds and music are all
 generated procedurally in code. No third-party assets, no artwork, no samples.
 
+Built with **TypeScript + React + Vite**, rendered with **Three.js** on a
+purpose-built deterministic physics solver.
+
 ```bash
 npm install
 npm run dev      # play at http://localhost:5173
-npm test         # typecheck + 84 automated play-tests
+npm test         # typecheck + 99 automated play-tests
 npm run build    # production bundle
 ```
 
@@ -85,12 +88,21 @@ src/
   characters/  archetypes, cosmetics, procedural rigs
   effects/     particles, VFX, slow-mo/hitstop, replays
   audio/       synthesised SFX and music sequencer
-  ui/          DOM UI, HUD, menus, styles
+  ui/          React UI: HUD, menus, screens, stores, styles
   storage/     localStorage save data
   input/       bindings, keyboard/mouse/gamepad
   debug/       collider and AI debug overlays
   game/        the Game shell that wires it all together
+  main.tsx     React entry point: mounts the canvas host and the UI overlay
 ```
+
+**React only owns the interface.** `main.tsx` renders the canvas host and the
+overlay; an effect builds the `Game` once and hands it the host element. From
+there the engine runs its own fixed-timestep loop and never re-renders through
+React. The HUD and menus subscribe to two tiny external stores (`src/ui/store.ts`)
+via `useSyncExternalStore` — the 60 Hz HUD store is diffed before it is written,
+so a frame that changes nothing costs zero renders, and HUD updates never touch
+the menu tree.
 
 Gameplay runs on a fixed 120 Hz timestep with an accumulator, so the simulation
 is deterministic and frame-rate independent. Physics is a purpose-built rigid
@@ -100,8 +112,9 @@ predictable and testable in plain Node.
 
 ## Tests
 
-`npm test` typechecks the project and then runs 84 play-tests in
-`tests/run.ts`. They drive the real systems, not mocks:
+`npm test` typechecks the project and then runs 99 play-tests in
+`tests/run.ts` (Node loads the TypeScript and JSX sources directly through
+`tests/loader.mjs`). They drive the real systems, not mocks:
 
 * ball physics — settling, bouncing, rolling, wall rebounds, curve
 * movement — acceleration, sprinting, stopping, jumping, ice vs grass
@@ -112,5 +125,8 @@ predictable and testable in plain Node.
 * the AI — scoring against a passive opponent, difficulty ordering, legal speed
   limits, personality differences, long soaks without NaN
 * determinism, all six arenas, penalty duels
-* a full end-to-end boot of the real `Game` (renderer, UI, audio, every mode,
-  real keyboard and mouse events) against a headless DOM/WebGL shim
+* a full end-to-end boot of the real entry point (`src/main.tsx`) in jsdom with
+  a WebGL shim: React mounts, the renderer, audio, storage and every game mode
+  come up, real keyboard and mouse events drive the player, the rendered menus
+  are asserted in the DOM, clicking the actual **PLAY** button starts a match,
+  and the test fails on any React warning or error

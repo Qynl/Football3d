@@ -6,11 +6,10 @@
  * construction, the UI tree, audio graph, storage, match flow and the render
  * loop. Anything that throws on a real page throws here too.
  */
+import type { Game } from '../src/game/game.ts';
 import { fireEvent, installHeadlessEnv } from './env.ts';
 
 installHeadlessEnv();
-
-const { Game } = await import('../src/game/game.ts');
 
 interface SceneNode {
   isMesh?: boolean;
@@ -27,13 +26,44 @@ export interface BootResult {
 export async function runBootTests(
   check: (name: string, ok: boolean, detail?: string) => void,
 ): Promise<void> {
-  const doc = (globalThis as unknown as { document: { getElementById(id: string): HTMLElement } })
-    .document;
+  const doc = (globalThis as unknown as { document: Document }).document;
 
-  const game = new Game(doc.getElementById('app'));
-  check('game constructs without throwing', true);
-  game.start();
-  check('game starts', true);
+  // React renders asynchronously; give the scheduler a turn before asserting.
+  const flush = async (): Promise<void> => {
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+  };
+  /** Poll until a condition holds (booting the engine takes real work). */
+  const waitFor = async (what: () => boolean, ms = 10000): Promise<boolean> => {
+    const until = Date.now() + ms;
+    while (Date.now() < until) {
+      if (what()) return true;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    return what();
+  };
+  const uiErrors: string[] = [];
+  const realError = console.error;
+  console.error = (...args: unknown[]): void => {
+    uiErrors.push(args.map(String).join(' '));
+    realError(...args);
+  };
+  const $ = (sel: string): Element | null => doc.querySelector(sel);
+  const buttonWith = (text: string): HTMLElement | null =>
+    (Array.from(doc.querySelectorAll('button')) as HTMLElement[]).find((b) =>
+      (b.textContent ?? '').trim().toUpperCase().startsWith(text),
+    ) ?? null;
+
+  // Import the real page entry point: React mounts, the effect builds the
+  // engine and starts it, exactly as index.html does in a browser.
+  await import('../src/main.tsx');
+  const win = (globalThis as unknown as { window: { KICKOFF?: Game } }).window;
+  const booted = await waitFor(() => !!win.KICKOFF && !!$('#hud'));
+  await flush();
+  const game = win.KICKOFF;
+  check('the real entry point boots the game', booted && !!game);
+  if (!game) return;
+  check('the entry point renders the canvas host', !!$('#app canvas'));
 
   const anyGame = game as unknown as {
     frame(dt: number): void;
@@ -60,7 +90,24 @@ export async function runBootTests(
   };
 
   frames(10);
+  await flush();
   check('menu renders frames', true);
+  check('React mounted the UI tree', !!$('#hud') && !!$('.menu-wrap'),
+    `hud=${!!$('#hud')} menu=${!!$('.menu-wrap')}`);
+  check('the main menu renders its buttons', !!buttonWith('PLAY') && !!buttonWith('TRAINING'));
+  check('arena cards are rendered from real arena data',
+    doc.querySelectorAll('.setup-grid .card').length >= 6,
+    `cards=${doc.querySelectorAll('.setup-grid .card').length}`);
+
+  // --- Clicking the real PLAY button starts a real match --------------------
+  buttonWith('PLAY')?.click();
+  await flush();
+  frames(5);
+  check('clicking PLAY starts a match', anyGame.match.phase === 'countdown',
+    anyGame.match.phase);
+  frames(240);
+  anyGame.quitToMenu();
+  await flush();
 
   // --- Quick match ----------------------------------------------------------
   anyGame.startMatch({
@@ -209,9 +256,26 @@ export async function runBootTests(
   frames(10);
 
   // --- UI screens -----------------------------------------------------------
-  for (const screen of ['menu', 'play', 'customise', 'settings', 'controls', 'arenas']) {
-    anyGame.ui.show(screen);
-    frames(3);
-  }
-  check('every UI screen can be shown', true);
+  anyGame.ui.show('settings');
+  await flush();
+  check('the settings screen renders live controls',
+    doc.querySelectorAll('input[type=range]').length >= 5,
+    `sliders=${doc.querySelectorAll('input[type=range]').length}`);
+
+  anyGame.ui.show('customize');
+  await flush();
+  check('the customise screen renders swatches', doc.querySelectorAll('.swatch').length > 10,
+    `swatches=${doc.querySelectorAll('.swatch').length}`);
+
+  anyGame.ui.show('howto');
+  await flush();
+  check('the how-to screen renders', !!$('.modal-wide'));
+
+  anyGame.ui.show('menu');
+  await flush();
+  check('returning to the menu re-renders it', !!$('.menu-wrap'));
+
+  console.error = realError;
+  check('React rendered without errors or warnings', uiErrors.length === 0,
+    uiErrors.slice(0, 2).join(' | '));
 }
