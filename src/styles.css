@@ -675,3 +675,37 @@ button {
     width: 210px;
   }
 }
+
+.mini-meter.focus > div {
+  width: 0%;
+  background: linear-gradient(90deg, #55f7ff, #8f6bff, #ff3df5);
+  box-shadow: 0 0 18px rgba(255, 61, 245, 0.65);
+}
+
+.mini-meter.focus.ready > div {
+  animation: focusPulse 0.78s ease-in-out infinite alternate;
+}
+
+.mini-meter.focus.active > div {
+  background: linear-gradient(90deg, #ffffff, #55f7ff, #ff3df5);
+  box-shadow: 0 0 28px rgba(85, 247, 255, 0.95), 0 0 42px rgba(255, 61, 245, 0.42);
+}
+
+body.focus-mode #game-root canvas {
+  filter: brightness(0.82) contrast(1.24) saturate(1.12) hue-rotate(-8deg);
+}
+
+body.focus-mode .crosshair {
+  filter: drop-shadow(0 0 16px rgba(255, 61, 245, 0.88));
+  transform: translate(-50%, -50%) scale(1.08);
+}
+
+body.focus-mode .toast,
+body.focus-mode .power-wrap {
+  border-color: rgba(255, 61, 245, 0.44);
+}
+
+@keyframes focusPulse {
+  from { filter: brightness(1); }
+  to { filter: brightness(1.75); }
+}

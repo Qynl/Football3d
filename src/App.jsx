@@ -36,6 +36,8 @@ function Hud() {
           <div className="mini-meter"><div id="stamina-fill" /></div>
           <div className="mini-meter-label"><span>Skill bonus</span><strong id="skill-readout">x1.0</strong></div>
           <div className="mini-meter skill"><div id="skill-fill" /></div>
+          <div className="mini-meter-label"><span>Focus</span><strong id="focus-readout">0%</strong></div>
+          <div className="mini-meter focus"><div id="focus-fill" /></div>
         </div>
       </div>
 
@@ -77,7 +79,7 @@ function Hud() {
         <b>Controls</b>
         <p><span>WASD</span> skate · <span>SHIFT</span> sprint · <span>Mouse</span> aim/look + blade</p>
         <p><span>Hold LMB</span> charge · <span>Flick mouse</span> shape shot · <span>Right mouse</span> deke</p>
-        <p><span>E</span> poke/check · <span>M</span> mode · <span>R</span> reset puck · <span>ESC</span> unlock</p>
+        <p><span>E</span> poke/check · <span>F</span> focus mode · <span>M</span> mode · <span>R</span> reset</p>
       </div>
     </div>
   );
@@ -92,14 +94,14 @@ function StartScreen() {
         <h2>1v1 Hockey Simulator</h2>
         <p>
           Darker arena, tighter controls, smarter rival pressure, diving goalies, curved shots,
-          real puck elevation, body checks, live radar, and mouse-flick shooting instead of fake button spam.
+          real puck elevation, body checks, focus mode, shot preview, live radar, and mouse-flick shooting.
         </p>
 
         <div className="feature-strip">
           <div><strong>Pointer-lock sim</strong><span>pitch + flick aim</span></div>
           <div><strong>Real rebounds</strong><span>dives + saves</span></div>
           <div><strong>Adaptive AI</strong><span>dekes + snipes</span></div>
-          <div><strong>Darker ice</strong><span>cleaner bloom</span></div>
+          <div><strong>Focus mode</strong><span>slow ice + boost</span></div>
         </div>
 
         <div className="mode-grid">
@@ -113,7 +115,7 @@ function StartScreen() {
           </button>
         </div>
         <div className="tip-row">
-          <span>Pro tip:</span> Hold left mouse, drag through the release, then use E to poke back loose pucks.
+          <span>Pro tip:</span> Build Focus with dekes/checks, press F, then follow the preview line and rip a curved release.
         </div>
       </div>
     </div>

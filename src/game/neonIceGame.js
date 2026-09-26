@@ -26,6 +26,8 @@ const staminaReadout = document.getElementById('stamina-readout');
 const staminaFill = document.getElementById('stamina-fill');
 const skillReadout = document.getElementById('skill-readout');
 const skillFill = document.getElementById('skill-fill');
+const focusReadout = document.getElementById('focus-readout');
+const focusFill = document.getElementById('focus-fill');
 const momentumReadout = document.getElementById('momentum-readout');
 const coachTip = document.getElementById('coach-tip');
 const lastShotSpeed = document.getElementById('last-shot-speed');
@@ -65,6 +67,7 @@ let clock;
 let icePlane;
 let clickTargetMarker;
 let aimLine;
+let shotPreviewLine;
 let puckTrail;
 let puckShadow;
 let audioContext;
@@ -94,6 +97,10 @@ const state = {
   crowdPulse: 0,
   momentum: 0,
   skillMultiplier: 1,
+  focus: 0,
+  focusActive: 0,
+  styleCombo: 0,
+  styleComboTimer: 0,
   shotStreak: 0,
   lastShotKmh: 0,
   lastShotLabel: 'Charge a shot',
@@ -801,6 +808,7 @@ function tryGoalieSave(key, before, speed) {
   goalie.saveCount += 1;
   state.lastShotLabel = key === 'rival' ? 'Goalie save' : 'Your goalie save';
   state.momentum = clamp(state.momentum + (key === 'rival' ? -0.16 : 0.12), -1, 1);
+  if (key === 'player') addStyle(0.14, 'Clutch save.');
   spray(new THREE.Vector3(puck.pos.x, 0.32, goalie.z), 34, key === 'rival' ? TEAM.rival : TEAM.player, 1.7);
   state.cameraShake = Math.max(state.cameraShake, 0.08);
   showToast(key === 'rival' ? 'Goalie got a piece — chase the rebound.' : 'Your goalie bails you out. Go counter.', 1500);
@@ -1041,6 +1049,16 @@ function createAimHelpers() {
   );
   aimLine.frustumCulled = false;
   scene.add(aimLine);
+
+  const previewGeo = new THREE.BufferGeometry();
+  previewGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(22 * 3), 3));
+  shotPreviewLine = new THREE.Line(
+    previewGeo,
+    new THREE.LineBasicMaterial({ color: 0x62f7ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending })
+  );
+  shotPreviewLine.frustumCulled = false;
+  shotPreviewLine.visible = false;
+  scene.add(shotPreviewLine);
 }
 
 function startMatch(mode) {
@@ -1060,6 +1078,10 @@ function startMatch(mode) {
   player.stamina = 1;
   state.momentum = 0;
   state.skillMultiplier = 1;
+  state.focus = 0;
+  state.focusActive = 0;
+  state.styleCombo = 0;
+  state.styleComboTimer = 0;
   state.shotStreak = 0;
   state.lastShotKmh = 0;
   state.lastShotLabel = 'Charge a shot';
@@ -1154,6 +1176,10 @@ function onKeyDown(event) {
     showToast('Puck reset for a fresh rush.', 1800);
     return;
   }
+  if (event.code === 'KeyF' && state.running) {
+    activateFocusMode();
+    return;
+  }
   if (event.code === 'KeyE' && state.running) {
     tryPokeCheck();
   }
@@ -1169,6 +1195,36 @@ function toggleMode() {
   } else {
     if (document.pointerLockElement) document.exitPointerLock();
     showToast('Click-to-shoot mode: cursor aim is live.', 2600);
+  }
+}
+
+function activateFocusMode() {
+  if (state.focusActive > 0) {
+    showToast('Focus is already active — use the advantage now.', 1000);
+    return;
+  }
+  if (state.focus < 0.98) {
+    showToast(`Focus not ready: ${Math.round(state.focus * 100)}%. Earn it with dekes, checks, saves, and shots.`, 1500);
+    playTone(150, 0.08, 'sine', 0.03);
+    return;
+  }
+  state.focusActive = 6.25;
+  state.focus = 1;
+  state.cameraShake = Math.max(state.cameraShake, 0.12);
+  state.crowdPulse = Math.max(state.crowdPulse, 0.8);
+  showToast('FOCUS MODE: ice slows down, aim tightens, shots bite harder.', 2400);
+  playTone(240, 0.12, 'sawtooth', 0.045);
+  playTone(480, 0.16, 'triangle', 0.035, 0.05);
+}
+
+function addStyle(amount, label = '') {
+  if (!state.running || state.gameOver) return;
+  const comboBoost = state.styleComboTimer > 0 ? 1 + state.styleCombo * 0.08 : 1;
+  state.focus = clamp(state.focus + amount * comboBoost, 0, 1);
+  state.styleCombo = Math.min(6, state.styleCombo + 1);
+  state.styleComboTimer = 4.2;
+  if (label && state.focus >= 1 && state.focusActive <= 0) {
+    showToast(`${label} Focus ready — press F.`, 1550);
   }
 }
 
@@ -1261,21 +1317,31 @@ function update(dt) {
     state.timeRemaining = Math.max(0, state.timeRemaining - dt);
     state.momentum = damp(state.momentum, 0, 0.06, dt);
     state.skillMultiplier = damp(state.skillMultiplier, 1, 0.035, dt);
+    state.styleComboTimer = Math.max(0, state.styleComboTimer - dt);
+    if (state.styleComboTimer <= 0) state.styleCombo = 0;
+    if (state.focusActive > 0) {
+      state.focusActive = Math.max(0, state.focusActive - dt);
+      state.focus = clamp(state.focus - dt / 6.25, 0, 1);
+      if (state.focusActive <= 0) showToast('Focus spent. Keep making plays to refill it.', 1200);
+    }
+    document.body.classList.toggle('focus-mode', state.focusActive > 0);
     if (state.timeRemaining <= 0) {
       finishGame();
     }
   }
 
+  const iceDt = state.focusActive > 0 ? dt * 0.58 : dt;
   updateMouseCharge(dt);
   updatePlayer(dt);
-  updateAi(dt);
-  updateGoalies(dt);
-  updatePuck(dt);
+  updateAi(iceDt);
+  updateGoalies(iceDt);
+  updatePuck(iceDt);
   updateCamera(dt);
   updatePlayerStick(dt);
   updateParticles(dt);
   updateTrail();
   updateAimHelpers();
+  updateShotPreview();
   updateSkillTarget(dt);
   updateCrowd(dt);
   updateHud();
@@ -1489,6 +1555,7 @@ function updatePuck(dt) {
       ai.stun = 0.58;
       ai.vel.addScaledVector(getPlayerRight(), Math.sign(mouse.stickSide || 1) * -2.8);
       state.momentum = clamp(state.momentum + 0.14, -1, 1);
+      addStyle(0.18, 'Manual deke.');
       spray(new THREE.Vector3(stick.x, 0.11, stick.y), 18, TEAM.player, 1.05);
       showToast('Manual deke beat. Now attack the lane.', 1150);
     }
@@ -1671,11 +1738,14 @@ function updateCamera(dt, attract = false) {
   camera.rotation.x = player.pitch - state.cameraKick + (Math.random() - 0.5) * shake * 0.04;
   camera.rotation.z = clamp(-player.vel.x * 0.006, -0.065, 0.065);
 
-  const fovTarget = 73 + clamp(speed - 6, 0, 9) * 0.85 - mouse.charge * 3.4;
+  const focusVisual = state.focusActive > 0 ? 1 : 0;
+  const fovTarget = 73 + clamp(speed - 6, 0, 9) * 0.85 - mouse.charge * 3.4 - focusVisual * 2.2;
   camera.fov = damp(camera.fov, fovTarget, 5.5, dt);
   camera.updateProjectionMatrix();
+  renderer.toneMappingExposure = damp(renderer.toneMappingExposure, focusVisual ? 0.82 : 0.72, 4.5, dt);
+  bloomPass.strength = damp(bloomPass.strength, focusVisual ? 0.28 : 0.18, 4.5, dt);
 
-  const lineOpacity = clamp((speed - 7) / 8, 0, 0.34);
+  const lineOpacity = clamp((speed - 7) / 8 + focusVisual * 0.16, 0, 0.42);
   speedLines.forEach((line, index) => {
     line.material.opacity = lineOpacity * (0.5 + Math.sin(clock.elapsedTime * 8 + index) * 0.3 + 0.3);
     line.position.z += dt * (4 + speed * 0.7);
@@ -1774,6 +1844,59 @@ function updateAimHelpers() {
   aimLine.geometry.attributes.position.needsUpdate = true;
 }
 
+function updateShotPreview() {
+  if (!shotPreviewLine) return;
+  const active = state.running && !state.gameOver && state.possession === 'player' && mouse.charging;
+  shotPreviewLine.visible = active;
+  if (!active) {
+    shotPreviewLine.material.opacity = 0;
+    return;
+  }
+
+  const positions = shotPreviewLine.geometry.attributes.position.array;
+  const simStep = 0.045;
+  const held = clock.elapsedTime - mouse.chargeStart;
+  const baseCharge = clamp(Math.max(mouse.charge, held / 1.05), 0.08, 1);
+  const flickBoost = state.mode === 'simulation' ? clamp(mouse.movementAccumulator / 260, 0, 0.38) : 0.08;
+  const sweep = Math.abs(mouse.releaseVector.x);
+  const isBackhand = mouse.stickSide < -0.28;
+  const isSlapshot = baseCharge > 0.88 && held > 0.75 && mouse.movementAccumulator > 110;
+  const isDragShot = sweep > 150 && !isBackhand;
+  const shotModifier = isSlapshot ? 1.16 : isBackhand ? 0.84 : isDragShot ? 1.03 : 1;
+  const focusBoost = state.focusActive > 0 ? 1.18 : 1;
+  const power = clamp((0.34 + baseCharge * 0.78 + flickBoost) * shotModifier * focusBoost, 0.34, 1.68);
+  const pitchIntent = state.mode === 'simulation'
+    ? clamp((player.pitch + 0.42) / 0.86 + mouse.releaseVector.y / 420, 0.02, 1)
+    : clamp(baseCharge * 0.35, 0.04, 0.46);
+  const curve = clamp(mouse.releaseVector.x / 38 + mouse.stickSide * 1.4, -7.2, 7.2) * (isDragShot ? 1.45 : isBackhand ? 0.72 : 1);
+  const pos = puck.pos.clone();
+  const vel = getShotDirection().multiplyScalar((15 + power * 22) * 0.58).addScaledVector(player.vel, 0.12);
+  let air = 0.12;
+  let airVel = pitchIntent * (4.2 + power * 6.4);
+
+  for (let i = 0; i < 22; i += 1) {
+    positions[i * 3] = pos.x;
+    positions[i * 3 + 1] = 0.18 + Math.max(0, air);
+    positions[i * 3 + 2] = pos.y;
+    if (Math.abs(curve) > 0.01 && vel.length() > 1) {
+      const normal = new THREE.Vector2(-vel.y, vel.x).normalize();
+      vel.addScaledVector(normal, curve * simStep * 0.42);
+    }
+    pos.addScaledVector(vel, simStep);
+    vel.multiplyScalar(0.986);
+    airVel -= 6.2 * simStep;
+    air += airVel * simStep;
+    if (air < 0) {
+      air = 0;
+      airVel *= -0.12;
+    }
+  }
+
+  shotPreviewLine.material.opacity = state.focusActive > 0 ? 0.82 : 0.42 + mouse.charge * 0.22;
+  shotPreviewLine.material.color.setHex(pitchIntent > 0.62 ? TEAM.gold : state.focusActive > 0 ? 0xff3df5 : 0x62f7ff);
+  shotPreviewLine.geometry.attributes.position.needsUpdate = true;
+}
+
 function updateCrowd(dt) {
   state.crowdPulse = damp(state.crowdPulse, 0, 1.8, dt);
   crowdMats.forEach((mat, index) => {
@@ -1805,6 +1928,11 @@ function updateHud() {
   const skillPct = clamp((state.skillMultiplier - 1) / 1.3, 0, 1) * 100;
   skillReadout.textContent = `x${state.skillMultiplier.toFixed(1)}`;
   skillFill.style.width = `${skillPct}%`;
+  const focusPct = Math.round(state.focus * 100);
+  focusReadout.textContent = state.focusActive > 0 ? `${state.focusActive.toFixed(1)}s` : state.focus >= 1 ? 'READY' : `${focusPct}%`;
+  focusFill.style.width = `${focusPct}%`;
+  focusFill.parentElement.classList.toggle('ready', state.focus >= 1 && state.focusActive <= 0);
+  focusFill.parentElement.classList.toggle('active', state.focusActive > 0);
 
   const momentumLabel = state.momentum > 0.35 ? 'heater' : state.momentum > 0.1 ? 'you' : state.momentum < -0.35 ? 'danger' : state.momentum < -0.1 ? 'rival' : 'neutral';
   momentumReadout.textContent = momentumLabel;
@@ -1826,8 +1954,12 @@ function setRadarDot(element, pos) {
 
 function updateCoachTip() {
   if (!coachTip) return;
-  if (mouse.charging && state.mode === 'simulation') {
-    coachTip.textContent = 'Charging: move the mouse through release for power; aim higher/lower to beat the goalie.';
+  if (state.focusActive > 0) {
+    coachTip.textContent = 'FOCUS ACTIVE: ice is slowed. Pick a corner, add curve, and punish the goalie.';
+  } else if (state.focus >= 1) {
+    coachTip.textContent = 'Focus is ready. Press F to slow the ice and boost your next attack.';
+  } else if (mouse.charging && state.mode === 'simulation') {
+    coachTip.textContent = 'Charging: the cyan preview shows direction, curve, and height. Flick through release.';
   } else if (player.stamina < 0.22) {
     coachTip.textContent = 'Stamina is cooked. Coast or brake for a second, then sprint again.';
   } else if (state.possession === 'ai') {
@@ -1862,9 +1994,10 @@ function shootPuck() {
   const isSnap = held < 0.38 && !isSlapshot;
   const shotKind = isBackhand ? 'Backhand' : isSlapshot ? 'Slapshot' : isDragShot ? 'Drag wrister' : isSnap ? 'Snap shot' : 'Wrister';
   const shotModifier = isSlapshot ? 1.16 : isBackhand ? 0.84 : isDragShot ? 1.03 : isSnap ? 0.93 : 1;
-  const finalPower = clamp((0.34 + baseCharge * 0.78 + flickBoost) * shotModifier, 0.34, 1.54);
+  const focusBoost = state.focusActive > 0 ? 1.18 : 1;
+  const finalPower = clamp((0.34 + baseCharge * 0.78 + flickBoost) * shotModifier * focusBoost, 0.34, 1.68);
   const direction = getShotDirection();
-  const spread = (1 - baseCharge) * (isBackhand ? 0.12 : 0.07) + (state.mode === 'simulation' ? 0.012 : 0.032);
+  const spread = ((1 - baseCharge) * (isBackhand ? 0.12 : 0.07) + (state.mode === 'simulation' ? 0.012 : 0.032)) * (state.focusActive > 0 ? 0.48 : 1);
   direction.rotateAround(new THREE.Vector2(0, 0), (Math.random() - 0.5) * spread);
   direction.normalize();
 
@@ -1895,6 +2028,7 @@ function shootPuck() {
   state.lastShotKmh = Math.round(shotSpeed * 3.6);
   state.lastShotLabel = `${shotKind} · ${puck.shotHigh > 0.52 ? 'high' : 'low'} · curve ${Math.abs(puck.curve).toFixed(1)}`;
   state.momentum = clamp(state.momentum + 0.08 + finalPower * 0.05 + (isDragShot ? 0.04 : 0), -1, 1);
+  addStyle(isSlapshot ? 0.1 : isDragShot ? 0.13 : isBackhand ? 0.12 : 0.08, `${shotKind}.`);
   showToast(`${label} ${state.lastShotKmh} km/h`, 1500);
   playTone(80 + shotSpeed * 4, 0.07, 'sawtooth', 0.06);
   playTone(180 + shotSpeed * 6, 0.09, 'square', 0.025, 0.03);
@@ -1964,6 +2098,7 @@ function tryPokeCheck() {
     player.vel.multiplyScalar(0.62);
     state.cameraShake = Math.max(state.cameraShake, 0.16);
     state.momentum = clamp(state.momentum + 0.2, -1, 1);
+    addStyle(0.24, 'Big hit.');
     if (state.possession === 'ai') {
       state.possession = null;
       puck.pos.copy(ai.pos).addScaledVector(getPlayerForward(), 0.72);
@@ -1984,6 +2119,7 @@ function tryPokeCheck() {
     ai.vel.multiplyScalar(0.38);
     puck.vel.copy(player.vel);
     state.momentum = clamp(state.momentum + 0.16, -1, 1);
+    addStyle(0.16, 'Poke check.');
     spray(new THREE.Vector3(ai.pos.x, 0.18, ai.pos.y), 18, TEAM.player, 1.3);
     showToast('Clean poke check. Your puck.', 1500);
     playTone(300, 0.07, 'triangle', 0.04);
@@ -2009,6 +2145,7 @@ function scoreGoal(who) {
     state.shotStreak = hitTarget ? state.shotStreak + 1 : Math.max(0, state.shotStreak - 1);
     state.skillMultiplier = clamp(state.skillMultiplier + (hitTarget ? 0.42 : 0.16), 1, 2.3);
     state.momentum = clamp(state.momentum + (hitTarget ? 0.55 : 0.32), -1, 1);
+    addStyle(hitTarget ? 0.34 : 0.22, hitTarget ? 'Target snipe.' : 'Goal.');
     showToast(hitTarget ? `TOP CHEDDAR TARGET HIT! Skill x${state.skillMultiplier.toFixed(1)}.` : 'GOAL! You buried it. Crowd is losing it.', 3000);
     playGoalHorn(TEAM.player);
     if (hitTarget) spray(new THREE.Vector3(skillTarget.x, skillTarget.y, -RINK.goalLine), 70, TEAM.gold, 2.6);
@@ -2016,6 +2153,7 @@ function scoreGoal(who) {
     state.rivalScore += 1;
     state.shotStreak = 0;
     state.skillMultiplier = Math.max(1, state.skillMultiplier - 0.25);
+    state.focus = Math.max(0, state.focus - 0.18);
     state.momentum = clamp(state.momentum - 0.48, -1, 1);
     showToast('Rival scores. Shake it off and answer back.', 2800);
     playGoalHorn(TEAM.rival);
@@ -2035,6 +2173,7 @@ function finishGame() {
   state.running = false;
   mouse.charging = false;
   if (document.pointerLockElement) document.exitPointerLock();
+  document.body.classList.remove('focus-mode');
   hud.classList.add('hidden');
   endScreen.classList.remove('hidden');
   const diff = state.playerScore - state.rivalScore;
