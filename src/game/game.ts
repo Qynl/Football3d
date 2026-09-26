@@ -95,7 +95,7 @@ export class Game implements UiHost, MatchHost {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.append(this.renderer.domElement);
 
     this.camera = new CameraRig(window.innerWidth / window.innerHeight);
@@ -421,10 +421,14 @@ export class Game implements UiHost, MatchHost {
     this.renderer.shadowMap.enabled = s.shadows;
     const pixelCap = s.quality === 'low' ? 1 : s.quality === 'medium' ? 1.35 : 2;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, pixelCap));
-    this.sun.shadow.mapSize.set(
-      s.quality === 'low' ? 768 : s.quality === 'medium' ? 1024 : 1536,
-      s.quality === 'low' ? 768 : s.quality === 'medium' ? 1024 : 1536,
-    );
+    const shadowRes = s.quality === 'low' ? 768 : s.quality === 'medium' ? 1024 : 1536;
+    if (this.sun.shadow.mapSize.x !== shadowRes) {
+      this.sun.shadow.mapSize.set(shadowRes, shadowRes);
+      // The depth target is allocated lazily from mapSize, so it has to be
+      // thrown away for a resolution change to actually apply.
+      this.sun.shadow.map?.dispose();
+      this.sun.shadow.map = null;
+    }
     this.debugDraw.enabled = s.debug;
   }
 
