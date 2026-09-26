@@ -131,7 +131,7 @@ export class Game implements UiHost, MatchHost {
     this.bindWindowEvents();
 
     // Idle menu scene: gentle orbit so the menu is alive.
-    this.camera.startCinematic(new THREE.Vector3(0, 1.2, 0), 17);
+    this.camera.startCinematic(new THREE.Vector3(0, 1.1, 0), 15);
   }
 
   // ------------------------------------------------------------ construction
@@ -377,7 +377,7 @@ export class Game implements UiHost, MatchHost {
     this.match.phase = 'idle';
     this.vfx.clear();
     this.vfx.clearTimeEffects();
-    this.camera.startCinematic(new THREE.Vector3(0, 1.2, 0), 17);
+    this.camera.startCinematic(new THREE.Vector3(0, 1.1, 0), 15);
     this.audio.startMusic('menu');
     this.audio.play('uiBack');
     this.ui.show('menu');

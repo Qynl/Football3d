@@ -306,13 +306,38 @@ function render(scene: THREE.Scene, camera: THREE.PerspectiveCamera, skyTop: num
   const depth = new Float32Array(W * H).fill(Infinity);
   const top = new THREE.Color(skyTop);
   const bot = new THREE.Color(skyBottom);
+  // Use the scene's actual equirectangular sky texture when it can be read
+  // back, so clouds and horizon banding show up in the preview.
+  const bgSampler = samplerFor((scene.background as THREE.Texture) ?? null);
+  const invProj = camera.projectionMatrixInverse.clone();
+  const camWorld = camera.matrixWorld;
+  const dir = new THREE.Vector3();
   for (let y = 0; y < H; y++) {
     const t = y / (H - 1);
-    const r = top.r * (1 - t) + bot.r * t;
-    const g = top.g * (1 - t) + bot.g * t;
-    const b = top.b * (1 - t) + bot.b * t;
     for (let x = 0; x < W; x++) {
       const i = (y * W + x) * 3;
+      let r: number;
+      let g: number;
+      let b: number;
+      if (bgSampler) {
+        dir
+          .set((x / W) * 2 - 1, 1 - (y / H) * 2, 0.5)
+          .applyMatrix4(invProj)
+          .applyMatrix4(new THREE.Matrix4().extractRotation(camWorld))
+          .normalize();
+        const u = 0.5 + Math.atan2(dir.x, -dir.z) / (Math.PI * 2);
+        const vv = 0.5 - Math.asin(THREE.MathUtils.clamp(dir.y, -1, 1)) / Math.PI;
+        const tx = Math.min(bgSampler.w - 1, Math.max(0, Math.floor((((u % 1) + 1) % 1) * bgSampler.w)));
+        const ty = Math.min(bgSampler.h - 1, Math.max(0, Math.floor(vv * bgSampler.h)));
+        const o = (ty * bgSampler.w + tx) * 4;
+        r = Math.pow(bgSampler.data[o]! / 255, 2.2);
+        g = Math.pow(bgSampler.data[o + 1]! / 255, 2.2);
+        b = Math.pow(bgSampler.data[o + 2]! / 255, 2.2);
+      } else {
+        r = top.r * (1 - t) + bot.r * t;
+        g = top.g * (1 - t) + bot.g * t;
+        b = top.b * (1 - t) + bot.b * t;
+      }
       color[i] = r;
       color[i + 1] = g;
       color[i + 2] = b;

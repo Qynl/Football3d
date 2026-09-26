@@ -5,6 +5,13 @@ function hex(c: number): string {
   return '#' + c.toString(16).padStart(6, '0');
 }
 
+/** Blend two packed colours in sRGB space and return a css string. */
+function mix(a: number, b: number, t: number): string {
+  const ch = (shift: number): number =>
+    Math.round((((a >> shift) & 255) * (1 - t) + ((b >> shift) & 255) * t));
+  return `rgb(${ch(16)},${ch(8)},${ch(0)})`;
+}
+
 /** Procedurally paints the pitch surface: stripes, noise and line markings. */
 export function createPitchTexture(def: ArenaDef): THREE.CanvasTexture {
   const pxPerMeter = 26;
@@ -20,8 +27,11 @@ export function createPitchTexture(def: ArenaDef): THREE.CanvasTexture {
   // (Drawing noise with putImageData would *replace* the pixels underneath -
   // including the grass colour - so the base is built in the buffer itself.)
   const a = new THREE.Color(theme.grassA);
-  const b = new THREE.Color(theme.grassB);
-  const stripes = theme.surface === 'ice' ? 0 : 9;
+  // Mowing stripes are a *subtle* sheen difference, not two different greens -
+  // full-strength grassB reads as a fairground chequerboard once the renderer
+  // decodes it to linear light.
+  const b = new THREE.Color(theme.grassA).lerp(new THREE.Color(theme.grassB), 0.55);
+  const stripes = theme.surface === 'ice' ? 0 : 14;
   const grain = theme.surface === 'sand' ? 0.055 : theme.surface === 'ice' ? 0.022 : 0.045;
   const img = ctx.createImageData(w, h);
   const data = img.data;
@@ -148,19 +158,130 @@ export function createNetTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-/** Sky gradient used as the scene background. */
-export function createSkyTexture(top: number, bottom: number): THREE.CanvasTexture {
+/**
+ * Sky: a vertical gradient with soft procedural clouds banded around the
+ * horizon, so the background is not a flat wash of colour.
+ */
+export function createSkyTexture(top: number, bottom: number, clouds = true): THREE.CanvasTexture {
+  const w = 1024;
+  const h = 512;
   const canvas = document.createElement('canvas');
-  canvas.width = 8;
-  canvas.height = 128;
+  canvas.width = w;
+  canvas.height = h;
   const ctx = canvas.getContext('2d')!;
-  const grad = ctx.createLinearGradient(0, 0, 0, 128);
+
+  // The texture is mapped equirectangularly, so v = 0 is straight up and
+  // v = 0.5 is the horizon: the whole gradient has to live in the top half or
+  // the sky washes out to the horizon colour everywhere you actually look.
+  const horizon = h * 0.5;
+  const grad = ctx.createLinearGradient(0, 0, 0, horizon);
   grad.addColorStop(0, hex(top));
+  grad.addColorStop(0.55, mix(top, bottom, 0.55));
   grad.addColorStop(1, hex(bottom));
   ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, 8, 128);
+  ctx.fillRect(0, 0, w, horizon + 1);
+  // Below the horizon: a slightly deeper haze, mostly hidden by the stands.
+  const below = ctx.createLinearGradient(0, horizon, 0, h);
+  below.addColorStop(0, hex(bottom));
+  below.addColorStop(1, mix(bottom, 0x000000, 0.25));
+  ctx.fillStyle = below;
+  ctx.fillRect(0, horizon, w, h - horizon);
+
+  if (clouds) {
+    // Puffy clouds, flattened towards the horizon like real perspective.
+    for (let i = 0; i < 30; i++) {
+      const cx = Math.random() * w;
+      const band = Math.pow(Math.random(), 0.8);
+      const cy = h * (0.08 + band * 0.36);
+      const squash = 0.28 + (1 - band) * 0.5;
+      const scale = 34 + Math.random() * 120;
+      const puffs = 4 + Math.floor(Math.random() * 5);
+      const alpha = 0.2 + Math.random() * 0.4;
+      for (let p = 0; p < puffs; p++) {
+        const px = cx + (Math.random() - 0.5) * scale * 1.8;
+        const py = cy + (Math.random() - 0.5) * scale * squash;
+        const r = scale * (0.35 + Math.random() * 0.5);
+        const g2 = ctx.createRadialGradient(px, py, 0, px, py, r);
+        g2.addColorStop(0, `rgba(255,255,255,${alpha})`);
+        g2.addColorStop(0.5, `rgba(255,255,255,${alpha * 0.45})`);
+        g2.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g2;
+        ctx.beginPath();
+        ctx.ellipse(px, py, r, r * squash * 1.4, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.mapping = THREE.EquirectangularReflectionMapping;
+  return tex;
+}
+
+/**
+ * Perimeter hoarding strip: blocks of colour with invented wordmarks. Every
+ * name here is made up for this game.
+ */
+export function createAdTexture(colors: readonly number[]): THREE.CanvasTexture {
+  const w = 1536;
+  const h = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d')!;
+  const words = [
+    'KICKOFF!',
+    'VOLT',
+    'TURBO BOOT',
+    'PITCHCRAFT',
+    'HYPERGRASS',
+    'BOUNCE CO.',
+    'NIGHTLEAGUE',
+    'STUDFORGE',
+  ];
+  const panels = 6;
+  for (let i = 0; i < panels; i++) {
+    const x = (i / panels) * w;
+    const pw = w / panels;
+    const base = colors[i % colors.length] ?? 0x2f80ed;
+    ctx.fillStyle = '#' + base.toString(16).padStart(6, '0');
+    ctx.fillRect(x, 0, pw, h);
+    // Diagonal sheen.
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, 0, pw, h);
+    ctx.clip();
+    ctx.globalAlpha = 0.16;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.moveTo(x - 40, h);
+    ctx.lineTo(x + pw * 0.55, 0);
+    ctx.lineTo(x + pw * 0.95, 0);
+    ctx.lineTo(x + pw * 0.2, h);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.restore();
+    // Wordmark.
+    const word = words[i % words.length]!;
+    const lum =
+      (((base >> 16) & 255) * 0.299 + ((base >> 8) & 255) * 0.587 + (base & 255) * 0.114) / 255;
+    ctx.fillStyle = lum > 0.62 ? '#12203a' : '#ffffff';
+    ctx.font = 'bold 86px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(word, x + pw / 2, h / 2 + 4);
+    // Divider.
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(x, 0, 4, h);
+  }
+  // Top and bottom rails.
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.fillRect(0, 0, w, 10);
+  ctx.fillRect(0, h - 12, w, 12);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
   return tex;
 }

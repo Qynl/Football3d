@@ -14,7 +14,7 @@ interface FakeCtx2D {
 function fakeContext2D(width: number, height: number): FakeCtx2D {
   const noop = () => undefined;
   const gradient = { addColorStop: noop };
-  return {
+  const base: FakeCtx2D = {
     canvas: { width, height },
     fillStyle: '#000',
     strokeStyle: '#000',
@@ -55,6 +55,20 @@ function fakeContext2D(width: number, height: number): FakeCtx2D {
       height: h,
     }),
   };
+  // Anything else the texture painters reach for (rect, clip, lineCap, ...)
+  // becomes a harmless no-op rather than a crash in a headless run.
+  return new Proxy(base, {
+    get(target, prop: string) {
+      if (prop in target) return target[prop];
+      const fn = (): undefined => undefined;
+      target[prop] = fn;
+      return fn;
+    },
+    set(target, prop: string, value: unknown) {
+      target[prop] = value;
+      return true;
+    },
+  });
 }
 
 /** A permissive WebGL2 stub: enough for three.js to initialise without a GPU. */

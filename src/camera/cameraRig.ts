@@ -73,12 +73,15 @@ export class CameraRig {
     this.shakeTime += dt;
     if (this.cinematic.active) {
       this.cinematic.time += dt;
-      const a = this.cinematic.time * 0.7;
+      // Slow orbit from inside the bowl, high enough to see the pitch and the
+      // stands behind it rather than the back of the terracing.
+      const a = this.cinematic.time * 0.28;
       const c = this.cinematic.center;
+      const r = this.cinematic.radius;
       this.pos.set(
-        c.x + Math.sin(a) * this.cinematic.radius,
-        c.y + 3.4 + Math.sin(a * 0.6) * 0.8,
-        c.z + Math.cos(a) * this.cinematic.radius,
+        c.x + Math.sin(a) * r * 0.62,
+        c.y + r * 0.42 + Math.sin(a * 0.6) * 0.7,
+        c.z + Math.cos(a) * r * 0.78,
       );
       this.camera.position.lerp(this.pos, 1 - Math.pow(0.0005, dt));
       this.look.lerp(c, 1 - Math.pow(0.0008, dt));

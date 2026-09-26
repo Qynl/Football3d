@@ -15,6 +15,12 @@ export interface ArenaTheme {
   wallColor: number;
   wallAccent: number;
   crowdColors: number[];
+  /** Hoarding panel colours; falls back to the crowd palette. */
+  adColors?: number[];
+  /** Terracing concrete, its shaded risers and the roof. */
+  standColor?: number;
+  standShadow?: number;
+  roofColor?: number;
   ambient: number;
   ambientIntensity: number;
   sunColor: number;
@@ -51,16 +57,20 @@ export interface ArenaDef {
 }
 
 const stadiumTheme: ArenaTheme = {
-  sky: 0x74b9ff,
-  skyBottom: 0xdff1ff,
-  fog: 0xbfe2ff,
-  fogDensity: 0.0075,
+  sky: 0x3f93ea,
+  skyBottom: 0xaed8ff,
+  fog: 0xc2e0ff,
+  fogDensity: 0.0062,
   grassA: 0x3fa14a,
   grassB: 0x379141,
   lineColor: 0xf2fff4,
   wallColor: 0xf4f7fb,
   wallAccent: 0x2f80ed,
   crowdColors: [0xff6b6b, 0xffd93d, 0x4dd4ac, 0x5b8cff, 0xf78fb3, 0xffffff],
+  adColors: [0x2f80ed, 0xff6b6b, 0x11253f, 0xffd93d, 0x4dd4ac, 0x7a5cff],
+  standColor: 0xc3cdda,
+  standShadow: 0x8792a3,
+  roofColor: 0xe6ecf6,
   ambient: 0xbcd8ff,
   ambientIntensity: 0.85,
   sunColor: 0xfff6e0,
@@ -107,8 +117,8 @@ export const ARENAS: ArenaDef[] = [
     traction: 1.08,
     gravity: -20.5,
     theme: {
-      sky: 0xf6a06a,
-      skyBottom: 0xffd9a0,
+      sky: 0xe8763f,
+      skyBottom: 0xffc07a,
       fog: 0xf7c89b,
       fogDensity: 0.011,
       grassA: 0x2f6d55,
@@ -143,8 +153,8 @@ export const ARENAS: ArenaDef[] = [
     traction: 0.82,
     gravity: -20.5,
     theme: {
-      sky: 0x5ec6f2,
-      skyBottom: 0xd8f6ff,
+      sky: 0x35b6ef,
+      skyBottom: 0xb2ecff,
       fog: 0xd2f0ff,
       fogDensity: 0.006,
       grassA: 0xe8d39a,
@@ -215,8 +225,8 @@ export const ARENAS: ArenaDef[] = [
     traction: 0.38,
     gravity: -20.5,
     theme: {
-      sky: 0x9fd6f5,
-      skyBottom: 0xeaf9ff,
+      sky: 0x79c2ee,
+      skyBottom: 0xcdeeff,
       fog: 0xdff2ff,
       fogDensity: 0.012,
       grassA: 0xd9f0ff,
@@ -251,8 +261,8 @@ export const ARENAS: ArenaDef[] = [
     traction: 1.05,
     gravity: -20.5,
     theme: {
-      sky: 0x8b5cf6,
-      skyBottom: 0xe0c3fc,
+      sky: 0x7c46f0,
+      skyBottom: 0xcfa8fb,
       fog: 0xd7bffa,
       fogDensity: 0.014,
       grassA: 0x46b06a,

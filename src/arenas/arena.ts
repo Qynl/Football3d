@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 import type { ArenaDef } from './arenaDefs.ts';
-import { createNetTexture, createPitchTexture, createSkyTexture } from './pitchTexture.ts';
+import {
+  createAdTexture,
+  createNetTexture,
+  createPitchTexture,
+  createSkyTexture,
+} from './pitchTexture.ts';
 import type { PhysicsWorld } from '../physics/world.ts';
 import type { WallCollider } from '../physics/colliders.ts';
 
@@ -70,6 +75,8 @@ export class Arena {
     this.buildWalls();
     this.buildGoal(-1);
     this.buildGoal(1);
+    if (theme.decor !== 'beach') this.buildAdBoards();
+    if (theme.surface === 'grass' || theme.surface === 'sand') this.buildCornerFlags();
     this.buildDecor();
   }
 
@@ -246,95 +253,259 @@ export class Arena {
     }
   }
 
-  /** Instanced, GPU-animated crowd. Cheap and lively. */
+  /**
+   * Raked terracing with an instanced, GPU-animated crowd. Steps rise and step
+   * outwards like a real stand, with a dark structure behind so the bowl reads
+   * as architecture rather than a white fence.
+   */
   private buildStands(scale = 1): void {
     const def = this.def;
     const theme = def.theme;
-    const hw = def.halfWidth + 2.6;
-    const hl = def.halfLength + 2.6;
+    const hw = def.halfWidth + 2.2;
+    const hl = def.halfLength + 2.2;
+    const rows = 7;
+    const stepH = 0.42 * scale;
+    const stepD = 0.72;
 
-    // Stand structure.
-    const standMat = this.track(
-      new THREE.MeshStandardMaterial({ color: theme.wallColor, roughness: 0.9 }),
+    const concrete = this.track(
+      new THREE.MeshStandardMaterial({ color: theme.standColor ?? 0xb9c4d4, roughness: 0.95 }),
     );
-    const rows = 4;
+    const riserMat = this.track(
+      new THREE.MeshStandardMaterial({ color: theme.standShadow ?? 0x7d8899, roughness: 1 }),
+    );
+
+    // Terracing: a tread and a riser per row, on all four sides.
     for (let row = 0; row < rows; row++) {
-      const y = 0.35 + row * 0.45 * scale;
-      const ex = hw + row * 0.9;
-      const ez = hl + row * 0.9;
-      const geoX = this.track(new THREE.BoxGeometry(0.95, 0.4, ez * 2));
-      const geoZ = this.track(new THREE.BoxGeometry(ex * 2 + 1.9, 0.4, 0.95));
-      for (const s of [-1, 1]) {
-        const mx = new THREE.Mesh(geoX, standMat);
-        mx.position.set(s * (ex + 0.45), y, 0);
-        mx.receiveShadow = true;
-        this.group.add(mx);
-        const mz = new THREE.Mesh(geoZ, standMat);
-        mz.position.set(0, y, s * (ez + 0.45));
-        mz.receiveShadow = true;
-        this.group.add(mz);
+      const y = row * stepH;
+      const ex = hw + row * stepD;
+      const ez = hl + row * stepD;
+      const treadX = this.track(new THREE.BoxGeometry(stepD, 0.14, ez * 2 + stepD * 2));
+      const treadZ = this.track(new THREE.BoxGeometry(ex * 2 + stepD * 2, 0.14, stepD));
+      const riserX = this.track(new THREE.BoxGeometry(0.1, stepH, ez * 2 + stepD * 2));
+      const riserZ = this.track(new THREE.BoxGeometry(ex * 2 + stepD * 2, stepH, 0.1));
+      for (const sgn of [-1, 1]) {
+        const tx = new THREE.Mesh(treadX, concrete);
+        tx.position.set(sgn * (ex + stepD / 2), y + 0.07, 0);
+        tx.receiveShadow = true;
+        this.group.add(tx);
+        const tz = new THREE.Mesh(treadZ, concrete);
+        tz.position.set(0, y + 0.07, sgn * (ez + stepD / 2));
+        tz.receiveShadow = true;
+        this.group.add(tz);
+        const rx = new THREE.Mesh(riserX, riserMat);
+        rx.position.set(sgn * ex, y - stepH / 2 + 0.07, 0);
+        this.group.add(rx);
+        const rz = new THREE.Mesh(riserZ, riserMat);
+        rz.position.set(0, y - stepH / 2 + 0.07, sgn * ez);
+        this.group.add(rz);
       }
     }
 
-    // Crowd: instanced capsules with a vertex-shader bounce.
-    const positions: THREE.Vector3[] = [];
-    for (let row = 0; row < rows; row++) {
-      const y = 0.55 + row * 0.45 * scale;
-      const ex = hw + row * 0.9 + 0.45;
-      const ez = hl + row * 0.9 + 0.45;
-      const stepZ = 0.85;
-      for (let z = -ez; z <= ez; z += stepZ) {
-        positions.push(new THREE.Vector3(-ex, y, z));
-        positions.push(new THREE.Vector3(ex, y, z));
-      }
-      const stepX = 0.85;
-      for (let x = -ex; x <= ex; x += stepX) {
-        positions.push(new THREE.Vector3(x, y, -ez));
-        positions.push(new THREE.Vector3(x, y, ez));
+    // Back wall closing the bowl.
+    const backH = rows * stepH + 0.9;
+    const bx = hw + rows * stepD;
+    const bz = hl + rows * stepD;
+    const backMat = this.track(
+      new THREE.MeshStandardMaterial({ color: theme.standShadow ?? 0x6c7789, roughness: 1 }),
+    );
+    for (const sgn of [-1, 1]) {
+      const wx = new THREE.Mesh(this.track(new THREE.BoxGeometry(0.5, backH, bz * 2 + 1)), backMat);
+      wx.position.set(sgn * (bx + 0.25), backH / 2 - 0.4, 0);
+      this.group.add(wx);
+      const wz = new THREE.Mesh(this.track(new THREE.BoxGeometry(bx * 2 + 1, backH, 0.5)), backMat);
+      wz.position.set(0, backH / 2 - 0.4, sgn * (bz + 0.25));
+      this.group.add(wz);
+    }
+
+    // Canopy over the two long sides: instant "stadium" cue and it frames the
+    // pitch nicely from the low chase camera.
+    const roofMat = this.track(
+      new THREE.MeshStandardMaterial({
+        color: theme.roofColor ?? 0xe8eef7,
+        roughness: 0.6,
+        metalness: 0.1,
+        side: THREE.DoubleSide,
+      }),
+    );
+    const roofY = backH + 0.6;
+    const roofDepth = rows * stepD + 1.8;
+    for (const sgn of [-1, 1]) {
+      const roof = new THREE.Mesh(
+        this.track(new THREE.BoxGeometry(roofDepth, 0.18, bz * 2 + 1)),
+        roofMat,
+      );
+      roof.position.set(sgn * (hw + roofDepth / 2 - 0.6), roofY, 0);
+      roof.rotation.z = sgn * 0.07;
+      roof.castShadow = true;
+      this.group.add(roof);
+      // Support columns.
+      for (let i = -2; i <= 2; i++) {
+        const col = new THREE.Mesh(
+          this.track(new THREE.CylinderGeometry(0.11, 0.11, roofY, 8)),
+          roofMat,
+        );
+        col.position.set(sgn * (bx + 0.1), roofY / 2 - 0.4, (i / 2) * (bz * 0.8));
+        this.group.add(col);
       }
     }
-    const geo = this.track(new THREE.CapsuleGeometry(0.17, 0.3, 3, 6));
-    const mat = this.track(
-      new THREE.MeshStandardMaterial({ roughness: 0.85, vertexColors: false }),
-    );
-    const phases = new Float32Array(positions.length);
-    const colors = new Float32Array(positions.length * 3);
-    const mesh = new THREE.InstancedMesh(geo, mat, positions.length);
-    mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+
+    // ---- Crowd -----------------------------------------------------------
+    const bodies: THREE.Vector3[] = [];
+    for (let row = 0; row < rows; row++) {
+      const y = row * stepH + 0.14;
+      const ex = hw + row * stepD + stepD * 0.5;
+      const ez = hl + row * stepD + stepD * 0.5;
+      const step = 0.62;
+      for (let z = -ez; z <= ez; z += step) {
+        if (Math.random() < 0.12) continue; // a few empty seats
+        bodies.push(new THREE.Vector3(-ex + (Math.random() - 0.5) * 0.12, y, z + (Math.random() - 0.5) * 0.2));
+        bodies.push(new THREE.Vector3(ex + (Math.random() - 0.5) * 0.12, y, z + (Math.random() - 0.5) * 0.2));
+      }
+      for (let x = -ex; x <= ex; x += step) {
+        if (Math.random() < 0.12) continue;
+        bodies.push(new THREE.Vector3(x + (Math.random() - 0.5) * 0.2, y, -ez + (Math.random() - 0.5) * 0.12));
+        bodies.push(new THREE.Vector3(x + (Math.random() - 0.5) * 0.2, y, ez + (Math.random() - 0.5) * 0.12));
+      }
+    }
+
+    const shirtGeo = this.track(new THREE.CapsuleGeometry(0.15, 0.26, 3, 7));
+    const headGeo = this.track(new THREE.SphereGeometry(0.105, 7, 6));
+    const shirtMat = this.track(new THREE.MeshStandardMaterial({ roughness: 0.9 }));
+    const headMat = this.track(new THREE.MeshStandardMaterial({ roughness: 0.9 }));
+    const shirts = new THREE.InstancedMesh(shirtGeo, shirtMat, bodies.length);
+    const heads = new THREE.InstancedMesh(headGeo, headMat, bodies.length);
+    const phases = new Float32Array(bodies.length);
+    const shirtColors = new Float32Array(bodies.length * 3);
+    const headColors = new Float32Array(bodies.length * 3);
     const dummy = new THREE.Object3D();
     const c = new THREE.Color();
-    for (let i = 0; i < positions.length; i++) {
-      const p = positions[i];
+    const skins = [0xf0c79a, 0xd9a273, 0xa9714b, 0x7a4a2b, 0xfadcbc];
+    for (let i = 0; i < bodies.length; i++) {
+      const p = bodies[i]!;
+      const scaleV = 0.85 + Math.random() * 0.4;
       dummy.position.copy(p);
-      dummy.rotation.y = Math.atan2(-p.x, -p.z);
-      dummy.scale.setScalar(0.85 + Math.random() * 0.35);
+      dummy.position.y += 0.25 * scaleV;
+      dummy.rotation.set(0, Math.atan2(-p.x, -p.z), 0);
+      dummy.scale.setScalar(scaleV);
       dummy.updateMatrix();
-      mesh.setMatrixAt(i, dummy.matrix);
+      shirts.setMatrixAt(i, dummy.matrix);
+      dummy.position.y += 0.3 * scaleV;
+      dummy.updateMatrix();
+      heads.setMatrixAt(i, dummy.matrix);
       phases[i] = Math.random() * Math.PI * 2;
-      c.setHex(theme.crowdColors[i % theme.crowdColors.length]);
-      colors[i * 3] = c.r;
-      colors[i * 3 + 1] = c.g;
-      colors[i * 3 + 2] = c.b;
+      c.setHex(theme.crowdColors[i % theme.crowdColors.length]!);
+      shirtColors[i * 3] = c.r;
+      shirtColors[i * 3 + 1] = c.g;
+      shirtColors[i * 3 + 2] = c.b;
+      c.setHex(skins[Math.floor(Math.random() * skins.length)]!);
+      headColors[i * 3] = c.r;
+      headColors[i * 3 + 1] = c.g;
+      headColors[i * 3 + 2] = c.b;
     }
-    geo.setAttribute('aPhase', new THREE.InstancedBufferAttribute(phases, 1));
-    mesh.instanceColor = new THREE.InstancedBufferAttribute(colors, 3);
-    mat.onBeforeCompile = (shader) => {
-      shader.uniforms.uTime = { value: 0 };
-      shader.uniforms.uHype = { value: 0 };
-      shader.vertexShader =
-        'attribute float aPhase;\nuniform float uTime;\nuniform float uHype;\n' +
-        shader.vertexShader.replace(
-          '#include <begin_vertex>',
-          `#include <begin_vertex>
-           float bounce = max(0.0, sin(uTime * 3.1 + aPhase)) * (0.06 + uHype * 0.45);
-           transformed.y += bounce;`,
-        );
-      (mat as unknown as { userData: { shader?: THREE.WebGLProgramParametersWithUniforms } }).userData.shader =
-        shader;
-      this.crowdMaterials.push(shader as unknown as THREE.ShaderMaterial);
+    shirtGeo.setAttribute('aPhase', new THREE.InstancedBufferAttribute(phases, 1));
+    headGeo.setAttribute('aPhase', new THREE.InstancedBufferAttribute(phases, 1));
+    shirts.instanceColor = new THREE.InstancedBufferAttribute(shirtColors, 3);
+    heads.instanceColor = new THREE.InstancedBufferAttribute(headColors, 3);
+    const bounce = (mat: THREE.MeshStandardMaterial): void => {
+      mat.onBeforeCompile = (shader) => {
+        shader.uniforms.uTime = { value: 0 };
+        shader.uniforms.uHype = { value: 0 };
+        shader.vertexShader =
+          'attribute float aPhase;\nuniform float uTime;\nuniform float uHype;\n' +
+          shader.vertexShader.replace(
+            '#include <begin_vertex>',
+            `#include <begin_vertex>
+             float bounce = max(0.0, sin(uTime * 3.1 + aPhase)) * (0.05 + uHype * 0.5);
+             transformed.y += bounce;`,
+          );
+        this.crowdMaterials.push(shader as unknown as THREE.ShaderMaterial);
+      };
     };
-    mesh.frustumCulled = false;
-    this.group.add(mesh);
+    bounce(shirtMat);
+    bounce(headMat);
+    shirts.frustumCulled = false;
+    heads.frustumCulled = false;
+    this.group.add(shirts);
+    this.group.add(heads);
+  }
+
+  /**
+   * Perimeter advertising hoardings. Colour and motion right at pitch level,
+   * where the chase camera spends all its time. Original invented wordmarks.
+   */
+  private buildAdBoards(): void {
+    const def = this.def;
+    const theme = def.theme;
+    const tex = this.track(createAdTexture(theme.adColors ?? theme.crowdColors));
+    const hw = def.halfWidth - 0.01;
+    const hl = def.halfLength - 0.01;
+    const h = Math.min(def.wallHeight * 0.82, 1.0);
+    const make = (len: number, horizontal: boolean, x: number, z: number, rotY: number): void => {
+      const t = tex.clone();
+      t.wrapS = THREE.RepeatWrapping;
+      t.repeat.set(len / 6, 1);
+      this.track(t);
+      const mat = this.track(
+        new THREE.MeshStandardMaterial({
+          map: t,
+          roughness: 0.55,
+          emissive: 0xffffff,
+          emissiveMap: t,
+          emissiveIntensity: theme.surface === 'neon' ? 0.75 : 0.22,
+        }),
+      );
+      const board = new THREE.Mesh(this.track(new THREE.PlaneGeometry(len, h)), mat);
+      board.position.set(x, h / 2 + 0.02, z);
+      board.rotation.y = rotY;
+      board.receiveShadow = true;
+      this.group.add(board);
+      void horizontal;
+    };
+    make(hl * 2, false, -hw, 0, Math.PI / 2);
+    make(hl * 2, false, hw, 0, -Math.PI / 2);
+    // (rotation.y = +90 faces +X, i.e. inwards from the left-hand wall)
+    // End boards stop short of the goal mouth.
+    const mouth = def.goalWidth / 2 + def.postRadius * 3;
+    const segLen = hw - mouth;
+    if (segLen > 0.5) {
+      for (const sz of [-1, 1]) {
+        for (const sx of [-1, 1]) {
+          make(segLen, true, sx * (mouth + segLen / 2), sz * hl, sz > 0 ? Math.PI : 0);
+          void 0;
+        }
+      }
+    }
+  }
+
+  /** Corner flags - small, but they sell the place as a football pitch. */
+  private buildCornerFlags(): void {
+    const def = this.def;
+    const poleMat = this.track(new THREE.MeshStandardMaterial({ color: 0xf5f8ff, roughness: 0.6 }));
+    const flagMat = this.track(
+      new THREE.MeshStandardMaterial({
+        color: def.theme.wallAccent,
+        roughness: 0.8,
+        side: THREE.DoubleSide,
+      }),
+    );
+    const poleGeo = this.track(new THREE.CylinderGeometry(0.035, 0.035, 1.25, 6));
+    const flagGeo = this.track(new THREE.PlaneGeometry(0.38, 0.26));
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        const x = sx * (def.halfWidth - 0.35);
+        const z = sz * (def.halfLength - 0.35);
+        const pole = new THREE.Mesh(poleGeo, poleMat);
+        pole.position.set(x, 0.62, z);
+        pole.castShadow = true;
+        this.group.add(pole);
+        const flag = new THREE.Mesh(flagGeo, flagMat);
+        flag.position.set(x - sx * 0.19, 1.08, z);
+        flag.rotation.y = sx * 0.25;
+        flag.castShadow = true;
+        this.group.add(flag);
+        this.animated.push({ mesh: flag, baseY: 1.08, speed: 3.4 + Math.random(), phase: Math.random() * 6 });
+      }
+    }
   }
 
   private buildFloodlights(): void {
