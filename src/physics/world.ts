@@ -7,7 +7,8 @@ import type {
   PostCollider,
   WallCollider,
 } from './colliders.ts';
-import { DEFAULT_MATERIAL } from './colliders.ts';
+import { MATCH_BALL_RADIUS,
+  DEFAULT_MATERIAL } from './colliders.ts';
 
 /** Dynamic sphere = the football. */
 export class BallBody {
@@ -16,9 +17,9 @@ export class BallBody {
   /** Angular velocity (rad/s). */
   readonly spin = new Vec3();
   readonly prevPosition = new Vec3(0, 0.4, 0);
-  radius = 0.18;
-  mass = 0.44;
-  restitution = 0.62;
+  radius = MATCH_BALL_RADIUS;
+  mass = 1.1;
+  restitution = 0.6;
   grounded = false;
   /** Seconds since the ball last touched the ground. */
   airTime = 0;
@@ -72,7 +73,7 @@ export interface CapsuleRef {
 }
 
 export class PhysicsWorld {
-  ground: GroundSurface = { y: 0, friction: 0.62, restitution: 0.52, rollingResistance: 0.9 };
+  ground: GroundSurface = { y: 0, friction: 0.62, restitution: 0.5, rollingResistance: 0.3 };
   material: PhysicsMaterial = { ...DEFAULT_MATERIAL };
   walls: WallCollider[] = [];
   posts: PostCollider[] = [];
@@ -507,13 +508,18 @@ export class PhysicsWorld {
         this.pushContact('player', -rvn, p.x, p.y, p.z, dx, dy, dz, cap.index);
       }
     }
-    // Dribble push: the body keeps nudging the ball along while in contact.
-    const push = 5.5 + cap.hardness * 12;
+    // Dribble push. A body cannot walk through the ball, so the ball has to
+    // leave at least as fast as the body is closing on it - this is what makes
+    // running at the oversized match ball feel like shoving it along rather
+    // than clipping into it.
     const pvn = pv.x * dx + pv.z * dz;
-    if (pvn > 0) {
-      v.x += dx * pvn * push * dt;
-      v.z += dz * pvn * push * dt;
+    const bvn = v.x * dx + v.z * dz;
+    if (pvn > bvn) {
+      const gain = (pvn - bvn) * (0.55 + cap.hardness * 0.45);
+      v.x += dx * gain;
+      v.z += dz * gain;
     }
+    void dt;
     // Friction from the body brushing the ball adds a little spin.
     ball.spin.y += (pv.x * dz - pv.z * dx) * dt * 1.4;
   }

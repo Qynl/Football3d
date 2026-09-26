@@ -1,3 +1,4 @@
+import { MATCH_BALL_RADIUS } from '../physics/colliders.ts';
 import * as THREE from 'three';
 import { BallBody } from '../physics/world.ts';
 import { clamp } from '../core/math.ts';
@@ -104,7 +105,7 @@ export class Ball {
   setRadius(r: number): void {
     this.body.radius = r;
     this.mesh.scale.setScalar(r);
-    this.shadow.scale.setScalar(r / 0.36);
+    this.shadow.scale.setScalar(r / MATCH_BALL_RADIUS);
   }
 
   /** Visual squash on hard contacts. */
@@ -143,7 +144,7 @@ export class Ball {
     const height = Math.max(0, b.position.y - groundY);
     const k = clamp(1 - height * 0.07, 0.25, 1);
     this.shadow.position.set(b.position.x, groundY + 0.015, b.position.z);
-    this.shadow.scale.setScalar((b.radius / 0.36) * k);
+    this.shadow.scale.setScalar((b.radius / MATCH_BALL_RADIUS) * k);
     (this.shadow.material as THREE.MeshBasicMaterial).opacity = 0.34 * k;
 
     // Trail, shown only for quick balls.

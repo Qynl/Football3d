@@ -128,9 +128,13 @@ export class CameraRig {
     // Dynamic framing: pull back for speed, rise for aerials.
     const speedZoom = clamp(ballSpeed / 30, 0, 1);
     const airZoom = clamp((ball.body.position.y - 1.5) / 6, 0, 1);
+    // The match ball is nearly as tall as a player, so the framing has to sit
+    // back far enough to keep both it and the player comfortably in shot.
+    const ballSize = ball.body.radius;
     const distanceTarget =
-      8.4 + speedZoom * 2.6 + airZoom * 2.2 + clamp(ballDist * 0.16, 0, 3.4);
-    const heightTarget = 3.7 + speedZoom * 0.9 + airZoom * 3.4 + clamp(ballDist * 0.07, 0, 1.6);
+      9.2 + ballSize * 1.8 + speedZoom * 2.8 + airZoom * 2.4 + clamp(ballDist * 0.16, 0, 3.6);
+    const heightTarget =
+      4.0 + ballSize * 0.9 + speedZoom * 0.9 + airZoom * 3.4 + clamp(ballDist * 0.07, 0, 1.6);
     this.distance = damp(this.distance, distanceTarget, 0.02, dt);
     this.height = damp(this.height, heightTarget, 0.02, dt);
 
@@ -142,7 +146,7 @@ export class CameraRig {
     // Look at a point biased from the player towards the ball.
     const bias = clamp(0.22 + ballDist * 0.022, 0.2, 0.46);
     const lookX = lerp(p.x, b.x, bias);
-    const lookY = lerp(p.y + 1.15, b.y + 0.35, bias * 0.85);
+    const lookY = lerp(p.y + 1.15, b.y + ball.body.radius * 0.45, bias * 0.85);
     const lookZ = lerp(p.z, b.z, bias);
 
     const smooth = snapFactor > 0 ? snapFactor : 1 - Math.pow(0.0009, dt);

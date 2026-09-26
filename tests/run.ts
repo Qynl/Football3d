@@ -51,7 +51,7 @@ section('Ball physics');
 {
   const sim = new Sim({ ai: false });
   sim.skipCountdown();
-  sim.ball.reset(0, 0.36, 0);
+  sim.ball.reset(-8, 0.9, 0);
   sim.ball.body.velocity.set(0, 0, 18);
   sim.run(3);
   check('ball rebounds off the end wall / goal structure', sim.ball.body.position.z < sim.arena.def.halfLength + 0.3,
@@ -61,7 +61,7 @@ section('Ball physics');
 {
   const sim = new Sim({ ai: false });
   sim.skipCountdown();
-  sim.ball.reset(0, 0.36, 0);
+  sim.ball.reset(-8, 0.9, 0);
   sim.ball.body.velocity.set(18, 0, 0);
   sim.run(2.2);
   check('side wall rebound reverses X velocity', sim.ball.body.velocity.x < 0,
@@ -74,14 +74,16 @@ section('Ball physics');
   // Magnus effect: a spinning ball must curve.
   const straight = new Sim({ ai: false });
   straight.skipCountdown();
-  straight.ball.reset(0, 1.2, -6);
+  // Well away from both kickoff positions: the match ball is big enough to
+  // clip a standing player and that deflection would swamp the spin.
+  straight.ball.reset(-8, 1.2, -6);
   straight.ball.body.velocity.set(0, 2.5, 22);
   straight.run(0.8);
   const straightX = straight.ball.body.position.x;
 
   const curved = new Sim({ ai: false });
   curved.skipCountdown();
-  curved.ball.reset(0, 1.2, -6);
+  curved.ball.reset(-8, 1.2, -6);
   curved.ball.body.velocity.set(0, 2.5, 22);
   curved.ball.body.spin.set(0, 34, 0);
   curved.run(0.8);
@@ -94,7 +96,7 @@ section('Ball physics');
   // Backspin should slow a rolling ball down / pull it back.
   const sim = new Sim({ ai: false });
   sim.skipCountdown();
-  sim.ball.reset(0, 0.36, 0);
+  sim.ball.reset(-8, 0.9, 0);
   sim.ball.body.velocity.set(0, 0, 8);
   sim.ball.body.spin.set(-40, 0, 0); // backspin relative to +z travel
   sim.run(0.6);
@@ -548,12 +550,19 @@ section('AI opponent');
 }
 
 {
-  const easy = new Sim({ difficulty: 'easy', rules: 'timed', seed: 11 });
-  easy.skipCountdown();
-  easy.run(60);
-  const expert = new Sim({ difficulty: 'expert', rules: 'timed', seed: 11 });
-  expert.skipCountdown();
-  expert.run(60);
+  // Single matches are noisy, so compare the aggregate over several seeds.
+  const goalsFor = (difficulty: string): number => {
+    let total = 0;
+    for (const seed of [11, 12, 13, 14]) {
+      const sim = new Sim({ difficulty, rules: 'timed', seed });
+      sim.skipCountdown();
+      sim.run(60);
+      total += sim.match.score[1];
+    }
+    return total;
+  };
+  const easy = { match: { score: [0, goalsFor('easy')] } };
+  const expert = { match: { score: [0, goalsFor('expert')] } };
   check('expert AI outperforms easy AI against a passive human',
     expert.match.score[1] >= easy.match.score[1],
     `easy=${easy.match.score[1]} expert=${expert.match.score[1]}`);

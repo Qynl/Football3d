@@ -1,3 +1,4 @@
+import { MATCH_BALL_RADIUS } from '../physics/colliders.ts';
 import type { ArenaDef } from '../arenas/arenaDefs.ts';
 import type { PlayerModifiers } from '../player/footballer.ts';
 
@@ -83,8 +84,8 @@ export interface ChaosContext {
 export function defaultChaosContext(arena: ArenaDef): ChaosContext {
   return {
     arena: { ...arena, theme: arena.theme },
-    ballRadius: 0.36,
-    ballRestitution: 0.62,
+    ballRadius: MATCH_BALL_RADIUS,
+    ballRestitution: 0.6,
     gravity: arena.gravity,
     players: { speed: 1, acceleration: 1, jump: 1, gravity: 1, kickPower: 1, curve: 1 },
     extraBalls: 0,
@@ -99,7 +100,7 @@ export const CHAOS_MODIFIERS: ChaosModifier[] = [
     name: 'Giant Ball',
     blurb: 'A beach-ball sized problem.',
     apply: (c) => {
-      c.ballRadius = 0.72;
+      c.ballRadius = MATCH_BALL_RADIUS * 1.75;
     },
   },
   {
@@ -107,7 +108,7 @@ export const CHAOS_MODIFIERS: ChaosModifier[] = [
     name: 'Tiny Ball',
     blurb: 'Good luck finding it.',
     apply: (c) => {
-      c.ballRadius = 0.19;
+      c.ballRadius = MATCH_BALL_RADIUS * 0.4;
     },
   },
   {

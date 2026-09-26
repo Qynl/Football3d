@@ -1,3 +1,4 @@
+import { MATCH_BALL_RADIUS } from '../physics/colliders.ts';
 import { Vec3 } from '../core/math.ts';
 import type { BallBody } from '../physics/world.ts';
 import type { ArenaDef } from '../arenas/arenaDefs.ts';
@@ -79,7 +80,7 @@ export function predictTrajectory(
   arena: ArenaDef,
   horizon: number,
   out: TrajectoryPoint[],
-  radius = 0.36,
+  radius = MATCH_BALL_RADIUS,
 ): TrajectoryPoint[] {
   out.length = 0;
   let x = start.x;

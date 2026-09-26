@@ -9,6 +9,8 @@ export interface RigPose {
   verticalVelocity: number;
   /** 0..1 slide blend. */
   slide: number;
+  /** 0..1 diving-header blend: horizontal, arms out, legs trailing. */
+  dive: number;
   /** 0..1 kick charge. */
   charge: number;
   /** Counts down 1 -> 0 during a kick swing. */
@@ -41,6 +43,7 @@ export function createPose(): RigPose {
     grounded: true,
     verticalVelocity: 0,
     slide: 0,
+    dive: 0,
     charge: 0,
     kickSwing: 0,
     kickLeg: 1,
@@ -530,6 +533,7 @@ export class CharacterRig {
     const speedRatio = clamp(pose.speed / Math.max(2, pose.maxSpeed), 0, 1.35);
     const airborne = !pose.grounded;
     const sliding = pose.slide > 0.5;
+    const diving = pose.dive > 0.5;
     const backpedal = pose.driveZ < -0.25;
 
     // ---- Landing squash ---------------------------------------------------
@@ -667,6 +671,15 @@ export class CharacterRig {
       }
     }
 
+    if (diving) {
+      // Superman: body flat, legs trailing and slightly split, arms thrown out.
+      const flail = Math.sin(this.phase * 2.2) * 0.1;
+      tL = { z: -0.34 + flail, y: -(HIP_Y - ANKLE_Y) + 0.5, lift: 0 };
+      tR = { z: -0.34 - flail, y: -(HIP_Y - ANKLE_Y) + 0.44, lift: 0 };
+      armOverrideL = [-2.35, 0.24];
+      armOverrideR = [-2.35, 0.24];
+    }
+
     // ---- Solve the legs ----------------------------------------------------
     const footPitchL = tL.lift > 0.02 ? -0.35 : sliding ? 0.3 : 0.05;
     const footPitchR = tR.lift > 0.02 ? -0.35 : sliding ? 0.3 : 0.05;
@@ -739,7 +752,7 @@ export class CharacterRig {
     this.chest.rotation.y = damp(this.chest.rotation.y, twist, 0.0005, dt);
     this.chest.rotation.x = damp(
       this.chest.rotation.x,
-      sliding ? 0.5 : clamp(speedRatio * 0.12 + pose.charge * 0.1, 0, 0.3),
+      sliding ? 0.5 : diving ? -0.32 : clamp(speedRatio * 0.12 + pose.charge * 0.1, 0, 0.3),
       0.0008,
       dt,
     );
@@ -751,14 +764,16 @@ export class CharacterRig {
     const hipDrop = moving ? -Math.abs(Math.sin(this.phase)) * 0.012 * speedRatio : 0;
     // NOTE: assign, never accumulate - reading back body.position.y here and
     // subtracting again below would make the body sink a little every frame.
-    this.bodyLift = damp(this.bodyLift, bodyLift - pose.slide * 0.3, 0.0002, dt);
+    this.bodyLift = damp(this.bodyLift, bodyLift - pose.slide * 0.3 - pose.dive * 0.34, 0.0002, dt);
     this.body.position.y = this.bodyLift + bob + hipDrop;
 
     // Lean: forward under acceleration, into the turn sideways, flat in a slide.
     const targetTilt = sliding
       ? -0.95
-      : clamp(pose.leanZ * 0.22 + speedRatio * 0.16 + (backpedal ? -0.12 : 0), -0.45, 0.5);
-    const targetRoll = sliding ? 0.32 : clamp(-pose.leanX * 0.26, -0.4, 0.4) + this.bodyRoll;
+      : diving
+        ? 1.32
+        : clamp(pose.leanZ * 0.22 + speedRatio * 0.16 + (backpedal ? -0.12 : 0), -0.45, 0.5);
+    const targetRoll = sliding ? 0.32 : diving ? 0 : clamp(-pose.leanX * 0.26, -0.4, 0.4) + this.bodyRoll;
     this.bodyTilt = damp(this.bodyTilt, targetTilt, 0.0006, dt);
     this.body.rotation.x = this.bodyTilt;
     this.body.rotation.z = damp(this.body.rotation.z, targetRoll, 0.0009, dt);
@@ -776,7 +791,7 @@ export class CharacterRig {
       1 + this.squash * 0.12 + breathe,
     );
     // Sliding drops the whole body towards the turf.
-    this.body.position.z = -pose.slide * 0.18;
+    this.body.position.z = -pose.slide * 0.18 + pose.dive * 0.3;
 
     // ---- Head: glance at the ball -----------------------------------------
     const dxw = pose.lookX - this.root.position.x;

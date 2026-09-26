@@ -120,6 +120,15 @@ export class AIController {
     return this.self.team === 0 ? -this.arena.def.halfLength : this.arena.def.halfLength;
   }
 
+  /**
+   * Distance at which this AI counts as "on the ball". Derived from the actual
+   * bodies rather than hard-coded, because the match ball is oversized and a
+   * chaos modifier can change it mid-match.
+   */
+  private get touchDist(): number {
+    return this.self.capsule.radius + this.ball.body.radius + 0.35;
+  }
+
   private get targetGoalZ(): number {
     return this.self.team === 0 ? this.arena.def.halfLength : -this.arena.def.halfLength;
   }
@@ -256,7 +265,7 @@ export class AIController {
       (1 + d.anticipation * 0.3) *
       clamp(ballDist / 3, 0.3, 1.35);
     scores.attack =
-      ballDist < 3.2 && advantage > -0.25 ? (2.3 + advantage * 0.35) * p.attack : 0.2 * p.attack;
+      ballDist < 3.2 + this.ball.body.radius && advantage > -0.25 ? (2.3 + advantage * 0.35) * p.attack : 0.2 * p.attack;
     scores.defend =
       (dangerZone ? 1.9 : 0.6) * p.defend * (advantage < 0 ? 1.5 : 0.7) +
       (oppBallDist < 2.2 && ballInMyThird ? 1.2 : 0);
@@ -265,7 +274,7 @@ export class AIController {
         ? (1.3 + this.adaptation.pressBias * 1.1) * p.press
         : 0.15;
     const panic = Math.abs(ballPos.z - this.ownGoalZ) < arena.halfLength * 0.32;
-    scores.clear = dangerZone && ballDist < 2.8 ? (2.6 + (panic ? 3.2 : 0)) * p.defend : 0;
+    scores.clear = dangerZone && ballDist < 2.8 + this.ball.body.radius ? (2.6 + (panic ? 3.2 : 0)) * p.defend : 0;
     scores.aerial = ballHigh && ballDist < 6.5 ? 1.5 + p.intercept * 0.5 : 0;
     scores.reposition = 0.55 + (advantage < -0.9 ? 0.8 : 0);
 
@@ -441,14 +450,15 @@ export class AIController {
     const kickDir = new Vec3(dirX / dl, 0, dirZ / dl);
 
     // Stand behind the ball relative to the intended kick direction.
-    const setup = this.reachable(ballPos.x - kickDir.x * 0.85, ballPos.z - kickDir.z * 0.85);
+    const back = 0.85 + this.ball.body.radius;
+    const setup = this.reachable(ballPos.x - kickDir.x * back, ballPos.z - kickDir.z * back);
     const setupX = setup.x;
     const setupZ = setup.z;
     const toSetup = Math.hypot(setupX - self.position.x, setupZ - self.position.z);
     const ballDist = self.position.horizontalDistanceTo(ballPos);
 
     const aligned =
-      ballDist < 1.7 &&
+      ballDist < this.touchDist + 0.45 &&
       (ballPos.x - self.position.x) * kickDir.x + (ballPos.z - self.position.z) * kickDir.z > 0.25;
 
     if (!aligned) {
@@ -481,7 +491,7 @@ export class AIController {
       }
     } else {
       // Dribble: little touches to push the ball forward.
-      if (ballDist < 1.25 && self.kickCooldown <= 0 && this.rng.chance(0.35)) {
+      if (ballDist < this.touchDist && self.kickCooldown <= 0 && this.rng.chance(0.35)) {
         this.planKick(kickDir, this.rng.range(0.06, 0.17), false, 0);
       }
       this.adaptation.observeDribble(dt);
@@ -500,12 +510,16 @@ export class AIController {
     const dirZ = targetZ - ballPos.z;
     const dl = Math.hypot(dirX, dirZ) || 1;
     const kickDir = new Vec3(dirX / dl, 0, dirZ / dl);
-    const setupClear = this.reachable(ballPos.x - kickDir.x * 0.8, ballPos.z - kickDir.z * 0.8);
+    const backClear = 0.8 + this.ball.body.radius;
+    const setupClear = this.reachable(
+      ballPos.x - kickDir.x * backClear,
+      ballPos.z - kickDir.z * backClear,
+    );
     const setupX = setupClear.x;
     const setupZ = setupClear.z;
     const ballDist = self.position.horizontalDistanceTo(ballPos);
     const aligned =
-      ballDist < 1.7 &&
+      ballDist < this.touchDist + 0.45 &&
       (ballPos.x - self.position.x) * kickDir.x + (ballPos.z - self.position.z) * kickDir.z > 0.2;
     if (!aligned) {
       this.steerTo(setupX, setupZ, true, true);
@@ -540,7 +554,7 @@ export class AIController {
 
     // If the ball is coming at us and is reachable, step out and take it.
     const ballDist = this.self.position.horizontalDistanceTo(ballPos);
-    if (ballDist < 2.2 && this.self.kickCooldown <= 0) {
+    if (ballDist < this.touchDist + 0.6 && this.self.kickCooldown <= 0) {
       const away = new Vec3(
         this.self.position.x > 0 ? 0.55 : -0.55,
         0,
@@ -566,7 +580,7 @@ export class AIController {
 
     // Poke at the ball if it drifts into range.
     const ballDist = this.self.position.horizontalDistanceTo(ballPos);
-    if (ballDist < 1.5 && this.self.kickCooldown <= 0 && this.rng.chance(0.45)) {
+    if (ballDist < this.touchDist && this.self.kickCooldown <= 0 && this.rng.chance(0.45)) {
       const away = new Vec3(ballPos.x - opp.position.x, 0, this.attackDir * 1.5).normalize();
       this.planKick(away, 0.25, false, 0);
     }
@@ -829,12 +843,39 @@ export class AIController {
     this.actionCooldown = 0.3;
 
     const ballPos = this.perceivedBall;
+    // Every reach here is measured to the ball's *surface*: the match ball is
+    // oversized, so a fixed metre threshold would mean lunging at thin air.
+    const r = this.ball.body.radius;
     const ballDist = self.position.horizontalDistanceTo(ballPos);
     const oppDist = self.position.horizontalDistanceTo(opp.position);
     const oppBallDist = opp.position.horizontalDistanceTo(ballPos);
     const oppHasBall = oppBallDist < 1.8;
     const skill = this.difficulty.tackleSkill;
     const facingBall = this.isFacing(ballPos, 0.35);
+
+    // Diving header: the spectacular option. Worth it for a loose ball just
+    // out of running range, especially when the opponent would get there
+    // first, and never when it would leave our own goal wide open.
+    const attackDir = this.targetGoalZ > 0 ? 1 : -1;
+    const towardsGoal = (ballPos.z - self.position.z) * attackDir > -0.5;
+    if (
+      self.grounded &&
+      self.stamina > 45 &&
+      self.diveCooldown <= 0 &&
+      // Only in the narrow band where a dive genuinely beats running: the
+      // ball is a stride and a half away and someone else is arriving too.
+      ballDist > 2.6 + r &&
+      ballDist < 4.0 + r &&
+      this.isFacing(ballPos, 0.8) &&
+      self.canDiveAt(this.ball) &&
+      oppBallDist < ballDist &&
+      towardsGoal &&
+      this.rng.chance((0.03 + skill * 0.05) * (0.5 + this.personality.hustle + this.personality.chaos))
+    ) {
+      this.out.challengePressed = true;
+      this.actionCooldown = 1.4;
+      return;
+    }
 
     // Standing tackle: safe, short range, only worth it when someone else has it.
     if (
@@ -851,7 +892,7 @@ export class AIController {
 
     // Slide: a real commitment. Only when the ball is genuinely winnable and we
     // are not about to scythe down the opponent (that would be a foul).
-    const ballAhead = ballDist > 1.2 && ballDist < 3.2 && ballPos.y < 1.1;
+    const ballAhead = ballDist > 1.2 && ballDist < 3.2 && ballPos.y < 1.1 + r;
     const wouldFoul = oppHasBall && oppDist < ballDist - 0.35;
     const worthIt = oppHasBall || (ballDist < 2.6 && oppBallDist < ballDist + 0.8);
     if (

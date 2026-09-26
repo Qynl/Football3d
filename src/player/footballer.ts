@@ -13,6 +13,7 @@ export type FootballerState =
   | 'run'
   | 'air'
   | 'slide'
+  | 'dive'
   | 'tackle'
   | 'stumble'
   | 'celebrate'
@@ -25,6 +26,8 @@ export interface KickInfo {
   quick: boolean;
   lob: boolean;
   volley: boolean;
+  /** True when the contact was a diving header rather than a boot. */
+  header?: boolean;
   position: Vec3;
   direction: Vec3;
 }
@@ -42,6 +45,7 @@ export interface PlayerEvents {
   onTouch?(p: Footballer, impact: number): void;
   onTackleWin?(p: Footballer): void;
   onSlideStart?(p: Footballer): void;
+  onDiveStart?(p: Footballer): void;
   onJump?(p: Footballer): void;
   onLand?(p: Footballer, impact: number): void;
   onBodyHit?(a: Footballer, b: Footballer, strength: number, at: Vec3): void;
@@ -51,19 +55,22 @@ export interface PlayerEvents {
 
 /** Shared base stats. Archetypes multiply these; nobody gets a hidden bonus. */
 export const BASE = {
-  walkSpeed: 6.5,
-  sprintSpeed: 9.5,
-  acceleration: 46,
-  deceleration: 52,
+  walkSpeed: 6.2,
+  sprintSpeed: 11.2,
+  acceleration: 40,
+  deceleration: 46,
   airAcceleration: 15,
-  turnRate: 13,
+  turnRate: 12,
+  /** Extra shove in the first moments of a dash, so it reads as a burst. */
+  dashBurst: 5.4,
+  dashBurstTime: 0.3,
   jumpVelocity: 7.6,
   gravity: -25.5,
   radius: 0.42,
   height: 1.72,
   mass: 74,
-  kickMinSpeed: 8.5,
-  kickMaxSpeed: 33.5,
+  kickMinSpeed: 8.0,
+  kickMaxSpeed: 30.0,
   chargeTime: 1.05,
   quickTapTime: 0.11,
   kickReach: 1.18,
@@ -76,6 +83,13 @@ export const BASE = {
   slideBoost: 5.9,
   challengeDuration: 0.26,
   challengeCooldown: 0.65,
+  diveSpeed: 9.4,
+  diveLift: 4.3,
+  diveDuration: 0.6,
+  diveRecovery: 0.55,
+  diveCooldown: 0.8,
+  diveStamina: 26,
+  divePower: 23,
   staminaMax: 100,
   staminaDrain: 17,
   staminaRegen: 21,
@@ -98,6 +112,12 @@ export class Footballer {
   state: FootballerState = 'idle';
   grounded = true;
   stamina = BASE.staminaMax;
+  private dashBurstTimer = 0;
+  private wasDashing = false;
+  diveTimer = 0;
+  diveCooldown = 0;
+  private diveHit = false;
+  private divingRecovery = false;
 
   // Kick state.
   charging = false;
@@ -143,6 +163,7 @@ export class Footballer {
   private lastVelocity = new Vec3();
   private tmp = new Vec3();
   private tmp2 = new Vec3();
+  private tmp3 = new Vec3();
   private aimPitch = 0;
   private wasGrounded = true;
   /** Lateral input sampled during the kick charge - drives curve. */
@@ -240,6 +261,9 @@ export class Footballer {
     this.tackleTimer = 0;
     this.stumbleTimer = 0;
     this.challengeTimer = 0;
+    this.diveTimer = 0;
+    this.diveCooldown = 0;
+    this.divingRecovery = false;
     this.state = 'idle';
     this.stamina = BASE.staminaMax;
     this.celebrating = null;
@@ -264,6 +288,7 @@ export class Footballer {
     this.kickCooldown = Math.max(0, this.kickCooldown - dt);
     this.tackleCooldown = Math.max(0, this.tackleCooldown - dt);
     this.challengeCooldown = Math.max(0, this.challengeCooldown - dt);
+    this.diveCooldown = Math.max(0, this.diveCooldown - dt);
     this.jumpCooldown = Math.max(0, this.jumpCooldown - dt);
 
     if (this.celebrating) this.celebrationTime += dt;
@@ -339,7 +364,13 @@ export class Footballer {
 
     // Stamina.
     const wantsSprint = inp.sprint && inputLen > 0.15 && this.grounded && this.slideTimer <= 0;
-    if (wantsSprint && this.stamina > 0) {
+    const dashing = wantsSprint && this.stamina > 0;
+    // A dash should read as a burst, not a slow ramp to a higher top speed, so
+    // the first fraction of a second gets a big shove.
+    if (dashing && !this.wasDashing) this.dashBurstTimer = BASE.dashBurstTime;
+    this.wasDashing = dashing;
+    this.dashBurstTimer = Math.max(0, this.dashBurstTimer - dt);
+    if (dashing) {
       this.stamina = Math.max(0, this.stamina - BASE.staminaDrain * dt);
     } else {
       this.stamina = Math.min(
@@ -374,7 +405,8 @@ export class Footballer {
       (this.grounded ? BASE.acceleration * traction : BASE.airAcceleration * this.archetype.airControl) *
       this.archetype.acceleration *
       this.modifiers.acceleration *
-      (this.stumbleTimer > 0 ? 0.3 : 1);
+      (this.stumbleTimer > 0 ? 0.3 : 1) +
+      (this.dashBurstTimer > 0 && this.grounded ? BASE.dashBurst * traction * 10 : 0);
 
     const targetVx = wx * speedCap;
     const targetVz = wz * speedCap;
@@ -501,18 +533,32 @@ export class Footballer {
     }
     if (this.slideTimer > 0) this.resolveSlide(ball, others);
 
-    // ---- Body challenge ----
-    if (inp.challengePressed && this.canAct() && this.challengeCooldown <= 0) {
-      this.challengeTimer = BASE.challengeDuration;
-      this.challengeCooldown = BASE.challengeCooldown;
-      const f = this.facing(this.tmp);
-      this.velocity.x += f.x * 2.6;
-      this.velocity.z += f.z * 2.6;
+    // ---- Diving header / body challenge ----
+    // One button, two moves: launch at a ball you can reach, shoulder-barge
+    // anything else. Diving is the spectacular, stamina-hungry option.
+    if (inp.challengePressed && this.canAct() && this.diveTimer <= 0) {
+      if (this.canDiveAt(ball) && this.diveCooldown <= 0 && this.stamina >= BASE.diveStamina) {
+        this.startDive();
+      } else if (this.challengeCooldown <= 0) {
+        this.challengeTimer = BASE.challengeDuration;
+        this.challengeCooldown = BASE.challengeCooldown;
+        const f = this.facing(this.tmp);
+        this.velocity.x += f.x * 2.6;
+        this.velocity.z += f.z * 2.6;
+      }
     }
+    if (this.diveTimer > 0) this.divingRecovery = true;
+    if (this.divingRecovery && !this.grounded) this.resolveDive(dt, ball);
     if (this.challengeTimer > 0) this.resolveChallenge(others, ball);
 
     this.capsule.hardness =
-      this.slideTimer > 0 ? 1 : this.challengeTimer > 0 ? 0.75 : this.tackleTimer > 0 ? 0.45 : 0;
+      this.slideTimer > 0 || this.divingRecovery
+        ? 1
+        : this.challengeTimer > 0
+          ? 0.75
+          : this.tackleTimer > 0
+            ? 0.45
+            : 0;
   }
 
   private tackleResolved = false;
@@ -520,11 +566,98 @@ export class Footballer {
   canAct(): boolean {
     return (
       !this.frozen &&
+      !this.divingRecovery &&
       this.slideTimer <= 0 &&
       this.slideRecovery <= 0 &&
       this.stumbleTimer <= 0 &&
       !this.celebrating
     );
+  }
+
+  /** Head height while airborne in a dive - the ball is met with the forehead. */
+  private diveHeadPoint(out: Vec3): Vec3 {
+    const f = this.facing(this.tmp2);
+    return out.set(
+      this.position.x + f.x * 0.55,
+      this.position.y + (this.diveTimer > 0 ? 0.75 : 1.35),
+      this.position.z + f.z * 0.55,
+    );
+  }
+
+  /** Is the ball worth launching at? Roughly ahead, and within a dive's travel. */
+  canDiveAt(ball: Ball): boolean {
+    const b = ball.body;
+    const f = this.facing(this.tmp);
+    const dx = b.position.x - this.position.x;
+    const dz = b.position.z - this.position.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist > 5.2) return false;
+    if (b.position.y - b.radius > this.position.y + 2.1) return false;
+    if (dist < 1e-3) return true;
+    return (dx / dist) * f.x + (dz / dist) * f.z > 0.25;
+  }
+
+  private startDive(): void {
+    const f = this.facing(this.tmp);
+    const sp = Math.hypot(this.velocity.x, this.velocity.z);
+    const launch = BASE.diveSpeed + sp * 0.45;
+    this.velocity.x = f.x * launch;
+    this.velocity.z = f.z * launch;
+    this.velocity.y = BASE.diveLift;
+    this.grounded = false;
+    this.diveTimer = BASE.diveDuration;
+    this.diveCooldown = BASE.diveCooldown;
+    this.diveHit = false;
+    this.stamina = Math.max(0, this.stamina - BASE.diveStamina);
+    this.charging = false;
+    this.charge = 0;
+    this.swingTimer = 0;
+    this.events.onDiveStart?.(this);
+  }
+
+  /** Forehead vs ball while airborne: a fast, flat, committed strike. */
+  private resolveDive(dt: number, ball: Ball): void {
+    this.diveTimer = Math.max(0, this.diveTimer - dt);
+    if (this.diveHit) return;
+    const b = ball.body;
+    const head = this.diveHeadPoint(this.tmp3);
+    const dx = b.position.x - head.x;
+    const dy = b.position.y - head.y;
+    const dz = b.position.z - head.z;
+    const d = Math.hypot(dx, dy, dz);
+    if (d > b.radius + 0.62) return;
+
+    this.diveHit = true;
+    const f = this.facing(this.tmp);
+    const sp = Math.hypot(this.velocity.x, this.velocity.z);
+    const speed = (BASE.divePower + sp * 0.55) * this.archetype.kickPower * this.modifiers.kickPower;
+    // Heading down into the turf or up over a keeper depends on where the
+    // forehead meets the ball, exactly like a real header.
+    const rel = d > 1e-4 ? dy / d : 0;
+    const loft = clamp(0.34 - rel * 0.85 + this.aimPitch * 0.4, -0.3, 0.95);
+    const dirX = f.x + (d > 1e-4 ? dx / d : 0) * 0.35;
+    const dirZ = f.z + (d > 1e-4 ? dz / d : 0) * 0.35;
+    const dl = Math.hypot(dirX, dirZ) || 1;
+    const horizontal = speed / Math.sqrt(1 + loft * loft);
+    b.velocity.x = (dirX / dl) * horizontal;
+    b.velocity.z = (dirZ / dl) * horizontal;
+    b.velocity.y = horizontal * loft + Math.max(0, this.velocity.y) * 0.3;
+    b.spin.y = -this.lateralInput * 9;
+    b.grounded = false;
+    ball.impact(1);
+    this.timeSinceTouch = 0;
+    this.lastKickPower = speed;
+    this.events.onKick?.({
+      player: this,
+      charge: 1,
+      power: speed,
+      quick: false,
+      lob: false,
+      volley: true,
+      header: true,
+      position: new Vec3(b.position.x, b.position.y, b.position.z),
+      direction: new Vec3(b.velocity.x, b.velocity.y, b.velocity.z).normalize(),
+    });
   }
 
   private startSlide(): void {
@@ -735,7 +868,12 @@ export class Footballer {
     const footY = this.position.y + Math.min(0.25, b.radius * 0.7);
     const dy = b.position.y - footY;
     const horiz = Math.hypot(dx, dz);
-    const verticalOk = dy > -0.75 && dy < 1.55;
+    // Reachable when any part of the ball is inside the strike band - with an
+    // oversized ball the centre can be above your head while the surface is
+    // right on your boot.
+    const verticalOk =
+      b.position.y - b.radius < this.position.y + 1.6 &&
+      b.position.y + b.radius > this.position.y - 0.35;
     if (horiz > reach || !verticalOk) {
       this.events.onWhiff?.(this);
       return;
@@ -767,15 +905,26 @@ export class Footballer {
     dir.y = 0;
     dir.normalize();
 
-    // ---- Loft ----
-    // Under the ball -> it lifts. Charge flattens the shot. Lob modifier chips it.
-    const underness = clamp01((0.34 - dy) * 0.9 + 0.22);
-    let loft = lerp(0.36, 0.1, curve) * underness;
-    if (this.swingLob) loft += 0.72;
-    if (dy > 0.35) loft += clamp((dy - 0.35) * 0.55, 0, 0.55); // scooping a high ball
-    loft += this.aimPitch * 0.55;
-    if (!this.grounded && this.velocity.y < -2) loft += 0.22; // awkward falling kick
-    loft = clamp(loft, -0.28, 1.5);
+    // ---- Loft: where the boot meets the ball decides the trajectory ----
+    // The boot sweeps through at shin height, so a ball whose centre sits well
+    // above that gets struck underneath and climbs; a ball at boot height gets
+    // driven flat. Measuring in ball radii keeps this consistent from the tiny
+    // chaos ball to the oversized match ball.
+    const bootY = this.position.y + 0.22;
+    const centreRel = (b.position.y - bootY) / Math.max(0.12, b.radius);
+    const under = clamp01(centreRel);
+    let loft = under * 0.55;
+    // A hard strike goes through the ball rather than under it.
+    loft *= lerp(1, 0.45, curve);
+    if (this.swingLob) {
+      loft += 0.8; // deliberate scoop: chip it over everything
+    } else {
+      loft -= 0.18; // leaning over the ball, driving it low
+    }
+    if (dy > 0.9 * b.radius && !this.grounded) loft += 0.12; // awkward high volley
+    loft += this.aimPitch * 0.5;
+    if (this.stumbleTimer > 0) loft += 0.25;
+    loft = clamp(loft, -0.3, 1.6);
 
     const horizontalSpeed = speed / Math.sqrt(1 + loft * loft);
     const vy = horizontalSpeed * loft;
@@ -795,7 +944,7 @@ export class Footballer {
     // Back/top spin from where the foot met the ball.
     const spinAxisX = -dir.z;
     const spinAxisZ = dir.x;
-    const topSpin = lerp(-0.9, 0.5, clamp01(underness)) * (6 + charge * 16);
+    const topSpin = lerp(-0.9, 0.5, under) * (6 + charge * 16);
     b.spin.x = spinAxisX * topSpin;
     b.spin.z = spinAxisZ * topSpin;
 
@@ -831,6 +980,15 @@ export class Footballer {
         this.landingImpact = -this.velocity.y;
         this.events.onLand?.(this, this.landingImpact);
         if (this.landingImpact > 12) this.stumbleTimer = Math.max(this.stumbleTimer, 0.2);
+        if (this.diveTimer > 0 || this.divingRecovery) {
+          // Belly landing: you skid, then have to pick yourself up. That cost
+          // is what stops the dive from being a free travel move.
+          this.diveTimer = 0;
+          this.divingRecovery = false;
+          this.velocity.x *= 0.45;
+          this.velocity.z *= 0.45;
+          this.stumbleTimer = Math.max(this.stumbleTimer, BASE.diveRecovery);
+        }
       }
       this.position.y = 0;
       this.velocity.y = 0;
@@ -845,6 +1003,7 @@ export class Footballer {
     // State for animation + AI reasoning.
     if (this.frozen) this.state = 'frozen';
     else if (this.celebrating) this.state = 'celebrate';
+    else if (this.divingRecovery) this.state = 'dive';
     else if (this.slideTimer > 0) this.state = 'slide';
     else if (this.stumbleTimer > 0) this.state = 'stumble';
     else if (!this.grounded) this.state = 'air';
@@ -917,6 +1076,7 @@ export class Footballer {
     pose.grounded = this.grounded;
     pose.verticalVelocity = this.velocity.y;
     pose.slide = damp(pose.slide, this.slideTimer > 0 ? 1 : 0, 0.00001, dt);
+    pose.dive = damp(pose.dive, this.divingRecovery && !this.grounded ? 1 : 0, 0.00001, dt);
     pose.charge = this.charge;
     pose.kickSwing = this.swingTotal > 0 ? clamp01(this.swingTimer / this.swingTotal) : 0;
     pose.kickLeg = this.kickLeg;

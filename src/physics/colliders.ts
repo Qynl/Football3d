@@ -89,10 +89,21 @@ export interface PhysicsMaterial {
   maxBallSpeed: number;
 }
 
+/**
+ * Radius of the standard match ball.
+ *
+ * This game is deliberately played with an oversized, light ball: it is the
+ * single biggest reason the arcade feel works. Everything that needs a ball
+ * size (chaos modifiers, AI reach, the camera, shadows) scales off this.
+ */
+export const MATCH_BALL_RADIUS = 0.85;
+
 export const DEFAULT_MATERIAL: PhysicsMaterial = {
   gravity: -20.5,
-  airDrag: 0.0062,
-  magnus: 0.0055,
-  spinDecay: 0.55,
-  maxBallSpeed: 58,
+  // The match ball is oversized and light, so it catches a lot of air: drag
+  // keeps long clearances from turning into laser beams and makes lobs hang.
+  airDrag: 0.0072,
+  magnus: 0.0072,
+  spinDecay: 0.5,
+  maxBallSpeed: 42,
 };
